@@ -2,14 +2,43 @@ import discord
 from discord.ext import commands
 import os
 from dotenv import load_dotenv
+from aiohttp import web
+import asyncio
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
 
 intents = discord.Intents.default()
 intents.members = True
+intents.message_content = True  # Enable message content intent
 
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+# -----------------------------
+# Web Server for Health Checks
+# -----------------------------
+async def health_check(request):
+    """Simple health check endpoint for Koyeb"""
+    return web.Response(text="OK", status=200)
+
+async def start_web_server():
+    """Start the web server for health checks"""
+    app = web.Application()
+    app.router.add_get('/', health_check)
+    app.router.add_get('/health', health_check)
+    
+    port = int(os.getenv('PORT', 8000))
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logger.info(f"🌐 Web server started on port {port}")
+    return runner
 
 # -----------------------------
 # Build and Weapon Data
@@ -211,83 +240,16 @@ class WeaponSelectView(discord.ui.View):
         self.add_item(WeaponSelect(build, member))
 
 class WeaponSelectViewWithFinish(discord.ui.View):
-    def __init__(self, build, member: discord.Member, added_roles):
+    def __init__(self, build, member: discord.Member, added_roles: list):
         super().__init__(timeout=300)
         self.build = build
         self.member = member
         self.added_roles = added_roles
-        self.add_item(WeaponSelectSecond(build, member))
-        self.add_item(FinishSelectionButton(member, added_roles))
+        self.add_item(WeaponSelect(build, member))
+        self.add_item(FinishButton(member, added_roles))
 
-class WeaponSelectSecond(discord.ui.Select):
-    def __init__(self, build, member: discord.Member):
-        self.build = build
-        self.member = member
-        options = []
-
-        # Get currently selected weapon to filter it out
-        current_roles = [role for role in member.roles if role.name.startswith(f"{build} •")]
-        current_weapons = [role.name.replace(f"{build} • ", "") for role in current_roles]
-
-        for w in BUILDS[build]:
-            if w not in current_weapons:  # Don't show already selected weapon
-                emoji = WEAPON_EMOJIS.get(w)
-                options.append(discord.SelectOption(label=w, emoji=emoji) if emoji else discord.SelectOption(label=w))
-
-        super().__init__(
-            placeholder=f"Choose 2nd weapon (optional)",
-            options=options,
-            min_values=1,
-            max_values=1
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-        # Security check
-        if interaction.user.id != self.member.id:
-            await interaction.response.send_message(
-                "❌ You can only select weapons for yourself!",
-                ephemeral=True
-            )
-            return
-
-        member = self.member
-        guild = interaction.guild
-
-        # Add the second weapon
-        added_roles = []
-        missing_roles = []
-        for weapon in self.values:
-            role_name = f"{self.build} • {weapon}"
-            role = discord.utils.get(guild.roles, name=role_name)
-            if role:
-                try:
-                    await member.add_roles(role)
-                    added_roles.append(role_name)
-                except discord.Forbidden:
-                    await interaction.response.send_message(
-                        "❌ I don't have permission to assign roles!",
-                        ephemeral=True
-                    )
-                    return
-            else:
-                missing_roles.append(role_name)
-
-        # Get all current build roles
-        all_roles = [role.name for role in member.roles if role.name.startswith(f"{self.build} •")]
-
-        # Build response message
-        msg = f"✅ Your roles have been updated:\n" + "\n".join(f"• {r}" for r in all_roles)
-        if missing_roles:
-            msg += f"\n\n⚠️ **Warning:** These roles don't exist on the server:\n" + "\n".join(f"• {r}" for r in missing_roles)
-
-        # Edit the message to show confirmation
-        await interaction.response.edit_message(
-            content=msg,
-            view=ConfirmationButtons(member)
-        )
-
-class FinishSelectionButton(discord.ui.Button):
-    def __init__(self, member: discord.Member, added_roles):
+class FinishButton(discord.ui.Button):
+    def __init__(self, member: discord.Member, added_roles: list):
         super().__init__(style=discord.ButtonStyle.success, label="Finish Selection")
         self.member = member
         self.added_roles = added_roles
@@ -296,7 +258,7 @@ class FinishSelectionButton(discord.ui.Button):
         # Security check
         if interaction.user.id != self.member.id:
             await interaction.response.send_message(
-                "❌ This is not your selection!",
+                "❌ You can only finish your own selection!",
                 ephemeral=True
             )
             return
@@ -488,9 +450,9 @@ async def createroles(interaction: discord.Interaction):
 @bot.event
 async def on_ready():
     await bot.tree.sync()
-    print(f"✅ Logged in as {bot.user}")
-    print(f"📊 Serving {len(bot.guilds)} guild(s)")
-    print(f"🔧 Commands synced!")
+    logger.info(f"✅ Logged in as {bot.user}")
+    logger.info(f"📊 Serving {len(bot.guilds)} guild(s)")
+    logger.info(f"🔧 Commands synced!")
 
 # Error handling
 @postbuilds.error
@@ -502,10 +464,36 @@ async def admin_error(interaction: discord.Interaction, error):
             ephemeral=True
         )
 
-# Use environment variable for token
-TOKEN = os.getenv('DISCORD_BOT_TOKEN')
-if TOKEN:
-    bot.run(TOKEN)
-else:
-    print("❌ ERROR: DISCORD_BOT_TOKEN not found in environment variables!")
-    print("Please create a .env file with: DISCORD_BOT_TOKEN=your_token_here")
+# -----------------------------
+# Main startup with web server
+# -----------------------------
+async def main():
+    """Start both the web server and the Discord bot"""
+    # Start web server first
+    web_runner = await start_web_server()
+    
+    # Use environment variable for token
+    TOKEN = os.getenv('DISCORD_BOT_TOKEN')
+    if not TOKEN:
+        logger.error("❌ ERROR: DISCORD_BOT_TOKEN not found in environment variables!")
+        logger.error("Please set DISCORD_BOT_TOKEN in your environment")
+        return
+    
+    try:
+        # Start the bot with exponential backoff for rate limits
+        async with bot:
+            await bot.start(TOKEN)
+    except discord.errors.HTTPException as e:
+        if e.status == 429:  # Rate limited
+            retry_after = e.response.headers.get('Retry-After', 60)
+            logger.warning(f"⏳ Rate limited. Waiting {retry_after} seconds before retrying...")
+            await asyncio.sleep(float(retry_after))
+            async with bot:
+                await bot.start(TOKEN)
+        else:
+            raise
+    finally:
+        await web_runner.cleanup()
+
+if __name__ == "__main__":
+    asyncio.run(main())
