@@ -2,9 +2,25 @@ import discord
 from discord.ext import commands
 import os
 from dotenv import load_dotenv
+from threading import Thread
+from flask import Flask
 
 # Load environment variables
 load_dotenv()
+
+# Create Flask app for keeping Replit alive
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot is alive!"
+
+def run():
+    app.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
 
 intents = discord.Intents.default()
 intents.members = True
@@ -505,6 +521,7 @@ async def admin_error(interaction: discord.Interaction, error):
 # Use environment variable for token
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 if TOKEN:
+    keep_alive()  # Start web server to keep Replit alive
     bot.run(TOKEN)
 else:
     print("❌ ERROR: DISCORD_BOT_TOKEN not found in environment variables!")
