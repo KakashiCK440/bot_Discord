@@ -13,13 +13,15 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot is alive!"
+    return "I'm alive!"
 
-def run():
-    app.run(host='0.0.0.0', port=8080)
+def run_web():
+    # Use the PORT environment variable provided by your host, default to 8000
+    port = int(os.environ.get("PORT", 8000))
+    app.run(host='0.0.0.0', port=port)
 
 def keep_alive():
-    t = Thread(target=run)
+    t = Thread(target=run_web)
     t.start()
 
 intents = discord.Intents.default()
