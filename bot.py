@@ -24,79 +24,6 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # -----------------------------
-# Discord API Safety (Rate Limits)
-# -----------------------------
-_API_LOCK = asyncio.Lock()
-_MODAL_COOLDOWN: dict[tuple[int | None, int], float] = {}
-
-def _retry_after_from_http_exception(e: discord.HTTPException, default: float = 5.0) -> float:
-    """Best-effort retry-after extraction for 429s."""
-    ra = getattr(e, "retry_after", None)
-    if ra is not None:
-        try:
-            return float(ra)
-        except Exception:
-            pass
-
-    try:
-        resp = getattr(e, "response", None)
-        if resp is not None:
-            hdr = resp.headers.get("Retry-After")
-            if hdr:
-                return float(hdr)
-    except Exception:
-        pass
-
-    return float(default)
-
-async def _discord_call(coro_factory, *, retries: int = 2):
-    """Run a Discord API call with a global lock and basic 429 backoff."""
-    for attempt in range(retries + 1):
-        try:
-            async with _API_LOCK:
-                return await coro_factory()
-        except discord.HTTPException as e:
-            if getattr(e, "status", None) == 429:
-                wait = _retry_after_from_http_exception(e, default=5.0)
-                logger.warning(f"⏳ Hit Discord rate limit (429). Sleeping {wait:.2f}s then retrying...")
-                await asyncio.sleep(wait)
-                continue
-            raise
-
-async def safe_send_message(interaction: discord.Interaction, *args, **kwargs):
-    """Send a message safely (uses followup if already responded) + 429 handling."""
-    async def _send():
-        if hasattr(interaction, "response") and not interaction.response.is_done():
-            return await safe_send_message(interaction, *args, **kwargs)
-        return await interaction.followup.send(*args, **kwargs)
-    return await _discord_call(_send)
-
-async def safe_send_modal(interaction: discord.Interaction, modal: discord.ui.Modal, *, cooldown_seconds: float = 3.0):
-    """Open a modal with basic cooldown + 429 handling."""
-    key = (interaction.guild_id, interaction.user.id)
-    now = asyncio.get_event_loop().time()
-    last = _MODAL_COOLDOWN.get(key, 0.0)
-
-    # Prevent rapid repeated clicks from hammering the API
-    if now - last < cooldown_seconds:
-        return await safe_send_message(interaction, "⏳ Please wait a moment, then try again.", ephemeral=True)
-
-    _MODAL_COOLDOWN[key] = now
-
-    async def _send():
-        # Modals must be the initial response
-        if interaction.response.is_done():
-            return await interaction.followup.send("⚠️ Please click the button again.", ephemeral=True)
-        return await safe_send_modal(interaction, modal)
-
-    return await _discord_call(_send)
-
-async def safe_message_edit(message: discord.Message, *args, **kwargs):
-    """Edit a message with 429 handling."""
-    return await _discord_call(lambda: message.edit(*args, **kwargs))
-
-
-# -----------------------------
 # Database Initialization
 # -----------------------------
 DATA_DIR = Path("./data")
@@ -594,7 +521,7 @@ class BuildSelectView(discord.ui.View):
         # Show weapon selection
         weapon_view = WeaponSelectView(build_type)
         
-        await safe_send_message(interaction, 
+        await interaction.response.send_message(
             f"{BUILDS[build_type]['emoji']} **Build selected: {build_type}**\n\n"
             f"Now select your weapons (you can select 1-2 weapons):",
             view=weapon_view,
@@ -680,7 +607,7 @@ class WeaponSelectView(discord.ui.View):
             f"{WEAPON_ICONS.get(w, '⚔️')} {w}" for w in weapons
         ])
         
-        await safe_send_message(interaction, 
+        await interaction.response.send_message(
             f"✅ **Profile Updated!**\n\n"
             f"{BUILDS[self.build_type]['emoji']} **Build:** {self.build_type}\n"
             f"**Weapons:**\n{weapons_display}\n\n"
@@ -703,7 +630,7 @@ class ProfileSetupButton(discord.ui.View):
     async def setup_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Open the complete profile setup form"""
         modal = CompleteProfileModal()
-        await safe_send_modal(interaction, modal)
+        await interaction.response.send_modal(modal)
 
 
 class CompleteProfileModal(discord.ui.Modal, title="🎮 Complete Profile Setup"):
@@ -740,7 +667,7 @@ class CompleteProfileModal(discord.ui.Modal, title="🎮 Complete Profile Setup"
             # Validate level
             level_val = int(self.level.value)
             if level_val < 1 or level_val > 100:
-                await safe_send_message(interaction, 
+                await interaction.response.send_message(
                     "❌ Level must be between 1 and 100!",
                     ephemeral=True
                 )
@@ -749,7 +676,7 @@ class CompleteProfileModal(discord.ui.Modal, title="🎮 Complete Profile Setup"
             # Validate mastery
             mastery_val = int(self.mastery.value.replace(",", "").replace(" ", ""))
             if mastery_val < 0:
-                await safe_send_message(interaction, 
+                await interaction.response.send_message(
                     "❌ Mastery points must be positive!",
                     ephemeral=True
                 )
@@ -787,14 +714,14 @@ class CompleteProfileModal(discord.ui.Modal, title="🎮 Complete Profile Setup"
             
             response_msg += "\nNow select your build type:"
             
-            await safe_send_message(interaction, 
+            await interaction.response.send_message(
                 response_msg,
                 view=build_view,
                 ephemeral=True
             )
             
         except ValueError:
-            await safe_send_message(interaction, 
+            await interaction.response.send_message(
                 "❌ Please enter valid numbers for level and mastery!",
                 ephemeral=True
             )
@@ -818,7 +745,7 @@ class WarPollButtons(discord.ui.View):
         
         set_war_participation(guild_id, user_id, "saturday")
         
-        await safe_send_message(interaction, 
+        await interaction.response.send_message(
             get_text(guild_id, "registered_saturday"),
             ephemeral=True
         )
@@ -839,7 +766,7 @@ class WarPollButtons(discord.ui.View):
         
         set_war_participation(guild_id, user_id, "sunday")
         
-        await safe_send_message(interaction, 
+        await interaction.response.send_message(
             get_text(guild_id, "registered_sunday"),
             ephemeral=True
         )
@@ -859,7 +786,7 @@ class WarPollButtons(discord.ui.View):
         
         set_war_participation(guild_id, user_id, "both")
         
-        await safe_send_message(interaction, 
+        await interaction.response.send_message(
             get_text(guild_id, "registered_both"),
             ephemeral=True
         )
@@ -879,7 +806,7 @@ class WarPollButtons(discord.ui.View):
         
         set_war_participation(guild_id, user_id, "none")
         
-        await safe_send_message(interaction, 
+        await interaction.response.send_message(
             get_text(guild_id, "registered_not_playing"),
             ephemeral=True
         )
@@ -956,7 +883,7 @@ class WarPollButtons(discord.ui.View):
         embed.set_footer(text=f"{get_text(guild_id, 'use_warlist')}")
         
         try:
-            await safe_message_edit(interaction.message, embed=embed)
+            await interaction.message.edit(embed=embed)
         except:
             pass  # Message might be deleted
 
@@ -999,7 +926,7 @@ async def help_command(interaction: discord.Interaction):
         inline=False
     )
     
-    await safe_send_message(interaction, embed=embed)
+    await interaction.response.send_message(embed=embed)
 
 
 @bot.tree.command(name="postbuilds", description="Post build selection menu (Admin)")
@@ -1047,7 +974,7 @@ async def postbuilds(interaction: discord.Interaction):
         view=view
     )
     
-    await safe_send_message(interaction, 
+    await interaction.response.send_message(
         "✅ Profile setup message posted!",
         ephemeral=True
     )
@@ -1063,7 +990,7 @@ async def mybuild(interaction: discord.Interaction):
     player = db.get_player(user_id, guild_id)
     
     if not player:
-        await safe_send_message(interaction, 
+        await interaction.response.send_message(
             "❌ You don't have a build set yet! Use `/postbuilds` to select one.",
             ephemeral=True
         )
@@ -1097,7 +1024,7 @@ async def mybuild(interaction: discord.Interaction):
             inline=False
         )
     
-    await safe_send_message(interaction, embed=embed, ephemeral=True)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 @bot.tree.command(name="resetbuild", description="Reset and change your build")
@@ -1110,7 +1037,7 @@ async def resetbuild(interaction: discord.Interaction):
     player = db.get_player(user_id, guild_id)
     
     if not player:
-        await safe_send_message(interaction, 
+        await interaction.response.send_message(
             "❌ You don't have a build to reset!",
             ephemeral=True
         )
@@ -1138,7 +1065,7 @@ async def resetbuild(interaction: discord.Interaction):
     # Show build selection
     build_view = BuildSelectView()
     
-    await safe_send_message(interaction, 
+    await interaction.response.send_message(
         "✅ **Build reset!**\n\nSelect your new build type:",
         view=build_view,
         ephemeral=True
@@ -1184,7 +1111,7 @@ async def createroles(interaction: discord.Interaction):
     if existing:
         result += f"\n\n**Already Existed:** {len(existing)}"
     
-    await safe_send_message(interaction, result, ephemeral=True)
+    await interaction.response.send_message(result, ephemeral=True)
 
 
 # Profile Commands
@@ -1192,7 +1119,7 @@ async def createroles(interaction: discord.Interaction):
 async def setupprofile(interaction: discord.Interaction):
     """Start guided profile setup"""
     modal = CompleteProfileModal()
-    await safe_send_modal(interaction, modal)
+    await interaction.response.send_modal(modal)
 
 
 @bot.tree.command(name="setprofile", description="Quick profile update")
@@ -1213,14 +1140,14 @@ async def setprofile(
     
     # Validate
     if level < 1 or level > 100:
-        await safe_send_message(interaction, 
+        await interaction.response.send_message(
             "❌ Level must be between 1 and 100!",
             ephemeral=True
         )
         return
     
     if mastery_points < 0:
-        await safe_send_message(interaction, 
+        await interaction.response.send_message(
             "❌ Mastery points must be positive!",
             ephemeral=True
         )
@@ -1278,7 +1205,7 @@ async def setprofile(
     else:
         embed.set_footer(text=nickname_msg)
     
-    await safe_send_message(interaction, embed=embed)
+    await interaction.response.send_message(embed=embed)
 
 
 @bot.tree.command(name="profile", description="View player profile")
@@ -1293,7 +1220,7 @@ async def profile(interaction: discord.Interaction, user: discord.User = None):
     player = db.get_player(user_id, guild_id)
     
     if not player:
-        await safe_send_message(interaction, 
+        await interaction.response.send_message(
             get_text(guild_id, "no_profile"),
             ephemeral=True
         )
@@ -1339,7 +1266,7 @@ async def profile(interaction: discord.Interaction, user: discord.User = None):
         inline=True
     )
     
-    await safe_send_message(interaction, embed=embed)
+    await interaction.response.send_message(embed=embed)
 
 
 @bot.tree.command(name="updatestats", description="Update your mastery points or level")
@@ -1359,7 +1286,7 @@ async def updatestats(
     player = db.get_player(user_id, guild_id)
     
     if not player:
-        await safe_send_message(interaction, 
+        await interaction.response.send_message(
             "❌ You don't have a profile! Use `/setprofile` first.",
             ephemeral=True
         )
@@ -1367,14 +1294,14 @@ async def updatestats(
     
     # Validate
     if level is not None and (level < 1 or level > 100):
-        await safe_send_message(interaction, 
+        await interaction.response.send_message(
             "❌ Level must be between 1 and 100!",
             ephemeral=True
         )
         return
     
     if mastery_points is not None and mastery_points < 0:
-        await safe_send_message(interaction, 
+        await interaction.response.send_message(
             "❌ Mastery points must be positive!",
             ephemeral=True
         )
@@ -1398,7 +1325,7 @@ async def updatestats(
     sorted_players = sorted(all_players, key=lambda p: p['mastery_points'], reverse=True)
     rank = next((i+1 for i, p in enumerate(sorted_players) if p['user_id'] == user_id), 0)
     
-    await safe_send_message(interaction, 
+    await interaction.response.send_message(
         f"✅ **Stats Updated!**\n\n"
         f"**Level:** {new_level}\n"
         f"**Mastery:** {new_mastery:,}\n"
@@ -1417,7 +1344,7 @@ async def changename(interaction: discord.Interaction, new_name: str):
     player = db.get_player(user_id, guild_id)
     
     if not player:
-        await safe_send_message(interaction, 
+        await interaction.response.send_message(
             "❌ You don't have a profile! Use `/setupprofile` first.",
             ephemeral=True
         )
@@ -1425,7 +1352,7 @@ async def changename(interaction: discord.Interaction, new_name: str):
     
     # Validate name length
     if len(new_name) < 1:
-        await safe_send_message(interaction, 
+        await interaction.response.send_message(
             "❌ Name cannot be empty!",
             ephemeral=True
         )
@@ -1460,7 +1387,7 @@ async def changename(interaction: discord.Interaction, new_name: str):
     else:
         embed.set_footer(text=nickname_msg)
     
-    await safe_send_message(interaction, embed=embed)
+    await interaction.response.send_message(embed=embed)
 
 
 @bot.tree.command(name="leaderboard", description="View server leaderboard")
@@ -1493,7 +1420,7 @@ async def leaderboard(
     all_players_dict = db.get_all_players(guild_id)
     
     if not all_players_dict:
-        await safe_send_message(interaction, 
+        await interaction.response.send_message(
             "❌ No players have profiles yet!",
             ephemeral=True
         )
@@ -1559,7 +1486,7 @@ async def leaderboard(
                 text=f"Your rank: #{user_rank} • {user_player['mastery_points']:,} MP • Lv.{user_player['level']}"
             )
     
-    await safe_send_message(interaction, embed=embed)
+    await interaction.response.send_message(embed=embed)
 
 
 # War Commands
@@ -1573,7 +1500,7 @@ async def warpoll(interaction: discord.Interaction):
     # Validate channel
     channel_id = config.get("war_channel_id")
     if not channel_id:
-        await safe_send_message(interaction, 
+        await interaction.response.send_message(
             "❌ War channel not configured! Use `/setwar setting:war_channel value:#channel`",
             ephemeral=True
         )
@@ -1581,7 +1508,7 @@ async def warpoll(interaction: discord.Interaction):
     
     channel = interaction.guild.get_channel(channel_id)
     if not channel:
-        await safe_send_message(interaction, 
+        await interaction.response.send_message(
             "❌ Configured war channel not found!",
             ephemeral=True
         )
@@ -1674,7 +1601,7 @@ async def warpoll(interaction: discord.Interaction):
         view=view
     )
     
-    await safe_send_message(interaction, 
+    await interaction.response.send_message(
         "✅ War poll posted!",
         ephemeral=True
     )
@@ -1774,7 +1701,7 @@ async def warlist(interaction: discord.Interaction, day: str = None):
     
     embed.set_footer(text=get_text(guild_id, "footer_builds"))
     
-    await safe_send_message(interaction, embed=embed)
+    await interaction.response.send_message(embed=embed)
 
 
 @bot.tree.command(name="setwar", description="Configure war settings (Admin)")
@@ -1804,14 +1731,14 @@ async def setwar(interaction: discord.Interaction, setting: str, value: str):
             channel_id = int(channel_id)
             channel = interaction.guild.get_channel(channel_id)
             if not channel:
-                await safe_send_message(interaction, 
+                await interaction.response.send_message(
                     "❌ Channel not found!",
                     ephemeral=True
                 )
                 return
             update_war_setting(guild_id, "war_channel_id", channel_id)
         except ValueError:
-            await safe_send_message(interaction, 
+            await interaction.response.send_message(
                 "❌ Invalid channel! Mention the channel like #war-channel",
                 ephemeral=True
             )
@@ -1820,7 +1747,7 @@ async def setwar(interaction: discord.Interaction, setting: str, value: str):
     elif setting in ["poll_time", "saturday_time", "sunday_time"]:
         # Validate time format
         if ":" not in value:
-            await safe_send_message(interaction, 
+            await interaction.response.send_message(
                 "❌ Invalid time format! Use HH:MM (e.g., 15:00)",
                 ephemeral=True
             )
@@ -1833,7 +1760,7 @@ async def setwar(interaction: discord.Interaction, setting: str, value: str):
             if hour < 0 or hour > 23 or minute < 0 or minute > 59:
                 raise ValueError
         except ValueError:
-            await safe_send_message(interaction, 
+            await interaction.response.send_message(
                 "❌ Invalid time! Use 24-hour format (e.g., 15:00 for 3 PM)",
                 ephemeral=True
             )
@@ -1857,7 +1784,7 @@ async def setwar(interaction: discord.Interaction, setting: str, value: str):
                 raise ValueError
             db.update_server_setting(guild_id, 'reminder_hours_before', hours)
         except ValueError:
-            await safe_send_message(interaction, 
+            await interaction.response.send_message(
                 "❌ Invalid hours! Must be between 0 and 24",
                 ephemeral=True
             )
@@ -1866,7 +1793,7 @@ async def setwar(interaction: discord.Interaction, setting: str, value: str):
     elif setting == "poll_day":
         days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
         if value.title() not in days:
-            await safe_send_message(interaction, 
+            await interaction.response.send_message(
                 f"❌ Invalid day! Choose from: {', '.join(days)}",
                 ephemeral=True
             )
@@ -1879,7 +1806,7 @@ async def setwar(interaction: discord.Interaction, setting: str, value: str):
             pytz.timezone(value)
             db.update_server_setting(guild_id, 'timezone', value)
         except pytz.exceptions.UnknownTimeZoneError:
-            await safe_send_message(interaction, 
+            await interaction.response.send_message(
                 f"❌ Invalid timezone! Examples: Africa/Cairo, Europe/London, America/New_York, Asia/Dubai\n"
                 f"See full list: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones",
                 ephemeral=True
@@ -1889,7 +1816,7 @@ async def setwar(interaction: discord.Interaction, setting: str, value: str):
     else:
         db.update_server_setting(guild_id, setting, value)
     
-    await safe_send_message(interaction, 
+    await interaction.response.send_message(
         f"✅ Setting **{setting}** updated to **{value}**!",
         ephemeral=True
     )
@@ -1947,7 +1874,7 @@ async def warconfig(interaction: discord.Interaction):
     
     embed.set_footer(text="Use /setwar to change settings")
     
-    await safe_send_message(interaction, embed=embed)
+    await interaction.response.send_message(embed=embed)
 
 
 @bot.tree.command(name="testreminder", description="Test war reminder (Admin)")
@@ -1964,7 +1891,7 @@ async def testreminder(interaction: discord.Interaction, day: str):
     
     channel_id = config.get("war_channel_id")
     if not channel_id:
-        await safe_send_message(interaction, 
+        await interaction.response.send_message(
             "❌ War channel not configured!",
             ephemeral=True
         )
@@ -1972,7 +1899,7 @@ async def testreminder(interaction: discord.Interaction, day: str):
     
     channel = interaction.guild.get_channel(channel_id)
     if not channel:
-        await safe_send_message(interaction, 
+        await interaction.response.send_message(
             "❌ War channel not found!",
             ephemeral=True
         )
@@ -2005,7 +1932,7 @@ async def testreminder(interaction: discord.Interaction, day: str):
     
     await channel.send(content=mentions, embed=embed)
     
-    await safe_send_message(interaction, 
+    await interaction.response.send_message(
         f"✅ Test reminder sent to {channel.mention}!",
         ephemeral=True
     )
@@ -2027,7 +1954,7 @@ async def setlanguage(interaction: discord.Interaction, language: str):
     
     lang_name = "English" if language == "en" else "Arabic"
     
-    await safe_send_message(interaction, 
+    await interaction.response.send_message(
         get_text(guild_id, "language_set").format(language=lang_name)
     )
 
@@ -2075,7 +2002,7 @@ async def reset_war(interaction: discord.Interaction, confirm: str):
             ),
             color=discord.Color.orange()
         )
-        await safe_send_message(interaction, embed=embed, ephemeral=True)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         return
     
     try:
@@ -2141,7 +2068,7 @@ async def reset_all_war(interaction: discord.Interaction, confirm: str):
             ),
             color=discord.Color.red()
         )
-        await safe_send_message(interaction, embed=embed, ephemeral=True)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         return
     
     try:
