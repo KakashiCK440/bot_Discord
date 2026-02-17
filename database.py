@@ -120,13 +120,16 @@ class Database:
                 id SERIAL PRIMARY KEY,
                 user_id BIGINT,
                 guild_id BIGINT,
-                username TEXT,
+                language TEXT DEFAULT 'ar',
                 in_game_name TEXT,
-                power_level INTEGER,
+                level INTEGER,
+                power INTEGER,
                 status TEXT DEFAULT 'pending',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                processed_at TIMESTAMP,
-                processed_by BIGINT
+                requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                reviewed_by BIGINT,
+                reviewed_at TIMESTAMP,
+                rejection_reason TEXT,
+                admin_message_id BIGINT
             )
         """)
         
@@ -393,6 +396,11 @@ class Database:
             logger.error(f"Error checking user language: {e}")
             return False
     
+    # Alias for backward compatibility
+    def has_user_chosen_language(self, user_id: int, guild_id: int) -> bool:
+        """Alias for has_language_preference (backward compatibility)"""
+        return self.has_language_preference(user_id, guild_id)
+    
     # ==================== SERVER SETTINGS OPERATIONS ====================
     
     def get_server_settings(self, guild_id: int) -> Dict:
@@ -477,17 +485,17 @@ class Database:
     
     # ==================== JOIN REQUEST OPERATIONS ====================
     
-    def create_join_request(self, user_id: int, guild_id: int, username: str, 
-                           in_game_name: str, power_level: int) -> Optional[int]:
+    def create_join_request(self, user_id: int, guild_id: int, language: str, 
+                           in_game_name: str, level: int, power: int) -> Optional[int]:
         """Create a new join request"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    INSERT INTO join_requests (user_id, guild_id, username, in_game_name, power_level)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO join_requests (user_id, guild_id, language, in_game_name, level, power)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     RETURNING id
-                """, (user_id, guild_id, username, in_game_name, power_level))
+                """, (user_id, guild_id, language, in_game_name, level, power))
                 return cursor.fetchone()[0]
         except Exception as e:
             logger.error(f"Error creating join request: {e}")
@@ -515,23 +523,23 @@ class Database:
                 cursor.execute("""
                     SELECT * FROM join_requests 
                     WHERE guild_id = %s AND status = 'pending'
-                    ORDER BY created_at DESC
+                    ORDER BY requested_at DESC
                 """, (guild_id,))
                 return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
             logger.error(f"Error getting pending join requests: {e}")
             return []
     
-    def update_join_request_status(self, request_id: int, status: str, processed_by: int) -> bool:
+    def update_join_request_status(self, request_id: int, status: str, reviewed_by: int) -> bool:
         """Update join request status"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
                     UPDATE join_requests 
-                    SET status = %s, processed_at = CURRENT_TIMESTAMP, processed_by = %s
+                    SET status = %s, reviewed_at = CURRENT_TIMESTAMP, reviewed_by = %s
                     WHERE id = %s
-                """, (status, processed_by, request_id))
+                """, (status, reviewed_by, request_id))
             return True
         except Exception as e:
             logger.error(f"Error updating join request status: {e}")
