@@ -54,48 +54,19 @@ class LanguageDropdown(discord.ui.Select):
         try:
             guild_id = interaction.guild_id
             user_id = interaction.user.id
-            
-            # Check if user already has a COMPLETE profile (with weapons set)
-            # This allows users from approved join requests to complete their setup
-            existing_player = self.db.get_player(user_id, guild_id)
-            if existing_player:
-                # Check if they have weapons - if they do, profile is complete
-                weapons = self.db.get_player_weapons(user_id, guild_id)
-                if weapons and len(weapons) > 0:
-                    await interaction.response.send_message(
-                        "❌ You already have a complete profile! You cannot change your language selection.\n\n"
-                        "Use `/profile` to view your profile or `/resetbuild` to change your build.",
-                        ephemeral=True
-                    )
-                    return
-                # If they have a profile but no weapons, let them continue (join request users)
-            
             lang = self.values[0]
             
-            # Check if user already selected a language (has language preference but no profile yet)
-            current_lang = self.db.get_user_language(user_id, guild_id)
-            if current_lang and current_lang != 'en':  # 'en' is default, so ignore it
-                await interaction.response.send_message(
-                    "❌ You already selected a language! Please complete the profile form that appeared earlier.\n\n"
-                    "If you closed it, please run `/setupprofile` again.",
-                    ephemeral=True
-                )
-                return
-            
+            # Save language preference immediately
             self.db.set_user_language(user_id, guild_id, lang)
             
-            # Disable the dropdown immediately to prevent re-selection
-            self.disabled = True
-            
-            # Send modal (ephemeral message will auto-delete after interaction)
+            # Send modal FIRST to avoid timeout (must respond within 3 seconds)
             modal = CompleteProfileModal(guild_id, user_id, self.db, self.LANGUAGES)
             await interaction.response.send_modal(modal)
             
-            # Edit the message to show selection and disable dropdown
-            # This needs to happen after modal is sent, so we use a background task
+            # Now do background checks and update message
             import asyncio
             
-            async def update_message():
+            async def background_update():
                 await asyncio.sleep(0.3)  # Small delay to ensure modal is sent
                 lang_name = "English" if lang == "en" else "العربية"
                 try:
@@ -103,11 +74,12 @@ class LanguageDropdown(discord.ui.Select):
                         content=f"✅ Language selected: **{lang_name}**\n\n_Please fill out the profile form._",
                         view=self.view
                     )
-                except Exception as e:
-                    # Message might be deleted or not editable (ephemeral)
+                except Exception:
+                    # Message might be deleted or not editable
                     pass
             
-            asyncio.create_task(update_message())
+            asyncio.create_task(background_update())
+            
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(f"Error in language selection: {e}", exc_info=True)

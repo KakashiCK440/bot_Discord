@@ -37,29 +37,10 @@ class JoinRequestButton(ui.View):
             guild_id = interaction.guild_id
             user_id = interaction.user.id
             
-            # Check if user already has a profile (already a member)
-            existing_player = self.db.get_player(user_id, guild_id)
-            
-            if existing_player is not None:
-                await interaction.response.send_message(
-                    "✅ أنت بالفعل عضو! تم إعداد ملفك الشخصي.",  # "You're already a member! Your profile is set up."
-                    ephemeral=True
-                )
-                return
-            
-            # Check if user already has a pending request
-            pending_requests = self.db.get_pending_join_requests(guild_id)
-            for request in pending_requests:
-                if request['user_id'] == user_id:
-                    await interaction.response.send_message(
-                        "⏳ لديك بالفعل طلب انضمام معلق. يرجى انتظار مراجعة المشرف.",  # "You already have a pending join request..."
-                        ephemeral=True
-                    )
-                    return
-            
-            # Show join request form directly (no language selection)
+            # Send modal FIRST to avoid timeout (must respond within 3 seconds)
             modal = JoinRequestModal(guild_id, user_id, "ar", self.db, self.LANGUAGES)  # Default to Arabic
             await interaction.response.send_modal(modal)
+            
         except Exception as e:
             logger.error(f"Error in join request button: {e}", exc_info=True)
             try:
