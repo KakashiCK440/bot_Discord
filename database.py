@@ -142,10 +142,11 @@ class Database:
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS server_join_settings (
                 guild_id INTEGER PRIMARY KEY,
-                join_channel_id INTEGER NOT NULL,
-                admin_review_channel_id INTEGER NOT NULL,
+                join_channel_id INTEGER,
+                admin_review_channel_id INTEGER,
                 build_setup_channel_id INTEGER,
-                min_power_requirement INTEGER DEFAULT 0
+                min_power_requirement INTEGER DEFAULT 0,
+                welcome_message_id INTEGER
             )
         """)
         
@@ -698,10 +699,16 @@ class Database:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    INSERT OR REPLACE INTO server_join_settings 
-                    (guild_id, join_channel_id, admin_review_channel_id, build_setup_channel_id, min_power_requirement)
-                    VALUES (?, ?, ?, ?, COALESCE((SELECT min_power_requirement FROM server_join_settings WHERE guild_id = ?), 0))
-                """, (guild_id, join_channel_id, admin_review_channel_id, build_setup_channel_id, guild_id))
+                    INSERT INTO server_join_settings 
+                    (guild_id, join_channel_id, admin_review_channel_id, build_setup_channel_id, min_power_requirement, welcome_message_id)
+                    VALUES (?, ?, ?, ?, 
+                        COALESCE((SELECT min_power_requirement FROM server_join_settings WHERE guild_id = ?), 0),
+                        (SELECT welcome_message_id FROM server_join_settings WHERE guild_id = ?))
+                    ON CONFLICT(guild_id) DO UPDATE SET
+                        join_channel_id = excluded.join_channel_id,
+                        admin_review_channel_id = excluded.admin_review_channel_id,
+                        build_setup_channel_id = excluded.build_setup_channel_id
+                """, (guild_id, join_channel_id, admin_review_channel_id, build_setup_channel_id, guild_id, guild_id))
             return True
         except Exception as e:
             logger.error(f"Error updating join settings: {e}")
