@@ -1,148 +1,60 @@
-# Database Setup Guide - Neon PostgreSQL
+# Database Setup Guide
 
-This guide will help you set up a free PostgreSQL database with Neon to ensure your bot data persists across restarts on Koyeb.
+This bot uses **PostgreSQL** for persistent data storage.
 
-## Why Do I Need This?
+## Supabase Setup (Recommended)
 
-Koyeb uses **ephemeral storage**, meaning any files (including your SQLite database) are deleted when the bot restarts. By using a cloud PostgreSQL database, your data will be stored permanently.
+### 1. Create a Supabase Project
+1. Go to [supabase.com](https://supabase.com) and sign up/login
+2. Click "New Project"
+3. Choose a name, database password, and region
+4. Wait for the project to be created (~2 minutes)
 
-## Step 1: Create a Neon Account
+### 2. Get Your Connection String
+1. In your Supabase project dashboard, go to **Settings** → **Database**
+2. Scroll down to **Connection String** section
+3. Select **URI** tab
+4. Copy the connection string (it looks like: `postgresql://postgres:[YOUR-PASSWORD]@db.xxx.supabase.co:5432/postgres`)
+5. Replace `[YOUR-PASSWORD]` with your actual database password
 
-1. Go to [https://neon.tech](https://neon.tech)
-2. Click **"Sign Up"** (you can use GitHub, Google, or email)
-3. Verify your email if required
+### 3. Configure the Bot
 
-## Step 2: Create a PostgreSQL Database
-
-1. After logging in, click **"Create Project"**
-2. Fill in the details:
-   - **Project name**: `discord-bot` (or any name you prefer)
-   - **PostgreSQL version**: 16 (recommended)
-   - **Region**: Choose the closest to your Koyeb deployment
-     - US East (Ohio) for Washington D.C.
-     - EU (Frankfurt) for Frankfurt
-     - Asia Pacific (Singapore) for Singapore
-3. Click **"Create Project"**
-
-## Step 3: Get Your Connection String
-
-1. After the project is created, you'll see a **Connection Details** section
-2. Look for the **Connection string** dropdown
-3. Select **"Pooled connection"** (recommended for better performance)
-4. Copy the connection string - it looks like this:
+#### Local Development
+1. Open the `.env` file in the bot directory
+2. Update the `DATABASE_URL`:
    ```
-   postgresql://username:password@ep-xxx-xxx.region.aws.neon.tech/dbname?sslmode=require
+   DATABASE_URL=postgresql://postgres:your-password@db.xxx.supabase.co:5432/postgres
    ```
-5. **IMPORTANT**: Save this connection string securely - you'll need it for Koyeb
 
-## Step 4: Add DATABASE_URL to Koyeb
+#### Koyeb Deployment
+1. Go to your Koyeb dashboard
+2. Select your bot service
+3. Go to **Settings** → **Environment Variables**
+4. Update `DATABASE_URL` with your Supabase connection string
+5. Click **Save** and redeploy
 
-1. Go to your [Koyeb Dashboard](https://app.koyeb.com)
-2. Click on your bot application
-3. Click **"Settings"** → **"Environment variables"**
-4. Click **"Add variable"**
-5. Add the following:
-   - **Name**: `DATABASE_URL`
-   - **Value**: Paste your Neon connection string from Step 3
-   - **Type**: Secret (recommended for security)
-6. Click **"Save"**
+## Database Tables
 
-## Step 5: Deploy Your Bot
-
-### Option A: Automatic Deployment (if auto-deploy is enabled)
-
-1. Push your code changes to GitHub:
-   ```bash
-   git add .
-   git commit -m "Add PostgreSQL support"
-   git push origin main
-   ```
-2. Koyeb will automatically redeploy your bot
-
-### Option B: Manual Deployment
-
-1. In Koyeb dashboard, click **"Redeploy"**
-2. Wait for the deployment to complete (2-3 minutes)
-
-## Step 6: Verify It's Working
-
-1. Check the Koyeb logs:
-   - Look for: `🐘 Using PostgreSQL database`
-   - Look for: `✅ PostgreSQL connection pool created`
-   - Look for: `✅ Database initialized`
-
-2. Test your bot:
-   - Create a player profile: `/createprofile`
-   - Check it works: `/profile`
-
-3. **Test persistence** (THE IMPORTANT PART):
-   - In Koyeb dashboard, click **"Restart"** to restart your bot
-   - Wait for it to come back online
-   - Run `/profile` again
-   - **Your profile should still be there!** ✅
+The bot will automatically create all necessary tables on first run:
+- `players` - Player profiles and stats
+- `player_weapons` - Player weapon selections
+- `user_language` - User language preferences
+- `server_settings` - Guild configuration
+- `join_requests` - Join request tracking
+- `server_join_settings` - Join system configuration
+- `event_participants` - Event participation tracking
 
 ## Troubleshooting
 
-### Error: "PostgreSQL support not available"
+### Connection Issues
+- Ensure your connection string is correct
+- Check that your database password doesn't contain special characters that need URL encoding
+- Verify your IP is allowed (Supabase allows all IPs by default)
 
-**Solution**: Make sure `psycopg2-binary` is in your `requirements.txt`:
-```
-psycopg2-binary>=2.9.9
-```
+### Table Creation Errors
+- The bot needs CREATE TABLE permissions
+- Check Supabase logs in the dashboard for detailed errors
 
-### Error: "Connection refused" or "Could not connect to server"
-
-**Possible causes**:
-1. **Wrong connection string**: Double-check you copied the entire string from Neon
-2. **Missing sslmode**: Ensure your connection string ends with `?sslmode=require`
-3. **Neon database sleeping**: Free tier databases auto-sleep after inactivity. The first connection might take a few seconds.
-
-### Error: "password authentication failed"
-
-**Solution**: Your connection string might be incorrect. Go back to Neon dashboard and copy a fresh connection string.
-
-### Bot works but data still gets wiped
-
-**Check**:
-1. Verify `DATABASE_URL` is set in Koyeb environment variables
-2. Check logs for `🐘 Using PostgreSQL database` - if you see `📁 Using SQLite database` instead, the environment variable isn't set correctly
-
-## Local Development
-
-Your bot will automatically use SQLite when running locally (no `DATABASE_URL` set). This is perfect for testing without affecting your production database.
-
-To test with PostgreSQL locally:
-1. Copy your Neon connection string
-2. Create a `.env` file in your project:
-   ```
-   DATABASE_URL=postgresql://your-connection-string-here
-   ```
-3. Run your bot locally
-
-## Neon Free Tier Limits
-
-✅ **What you get for FREE**:
-- 3 GB storage per branch
-- 100 compute hours per month
-- Unlimited databases
-- Auto-scaling
-- No credit card required
-
-⚠️ **Limits**:
-- If you exceed 100 compute hours/month, database will pause until next month
-- For a Discord bot, this is usually more than enough
-
-## Monitoring Your Database
-
-1. Go to [Neon Dashboard](https://console.neon.tech)
-2. Click on your project
-3. View:
-   - **Storage usage**: How much data you're storing
-   - **Compute hours**: How many hours you've used this month
-   - **Queries**: Recent database activity
-
-## Need Help?
-
-- **Neon Documentation**: https://neon.tech/docs
-- **Neon Discord**: https://discord.gg/neon
-- Check your bot logs in Koyeb for error messages
+### Performance Issues
+- Supabase free tier has connection limits
+- Consider upgrading if you have a large server
