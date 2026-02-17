@@ -56,18 +56,19 @@ class LanguageDropdown(discord.ui.Select):
             user_id = interaction.user.id
             lang = self.values[0]
             
-            # Save language preference immediately
-            self.db.set_user_language(user_id, guild_id, lang)
-            
-            # Send modal FIRST to avoid timeout (must respond within 3 seconds)
+            # Send modal IMMEDIATELY - NO database calls before this!
             modal = CompleteProfileModal(guild_id, user_id, self.db, self.LANGUAGES)
             await interaction.response.send_modal(modal)
             
-            # Now do background checks and update message
+            # Now do ALL database work in background
             import asyncio
             
-            async def background_update():
-                await asyncio.sleep(0.3)  # Small delay to ensure modal is sent
+            async def background_work():
+                # Save language preference
+                self.db.set_user_language(user_id, guild_id, lang)
+                
+                # Small delay to ensure modal is sent
+                await asyncio.sleep(0.3)
                 lang_name = "English" if lang == "en" else "العربية"
                 try:
                     await interaction.message.edit(
@@ -78,7 +79,7 @@ class LanguageDropdown(discord.ui.Select):
                     # Message might be deleted or not editable
                     pass
             
-            asyncio.create_task(background_update())
+            asyncio.create_task(background_work())
             
         except Exception as e:
             import logging

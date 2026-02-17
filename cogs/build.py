@@ -27,6 +27,9 @@ class BuildCog(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def postbuilds(self, interaction: discord.Interaction):
         """Post build selection menu (embed in your language)"""
+        # Defer immediately to avoid timeout
+        await interaction.response.defer(ephemeral=True)
+        
         guild_id = interaction.guild_id
         uid = interaction.user.id
         
@@ -67,7 +70,7 @@ class BuildCog(commands.Cog):
             view=view
         )
         
-        await interaction.response.send_message(
+        await interaction.followup.send(
             get_text(self.db, LANGUAGES, guild_id, "postbuilds_posted", uid),
             ephemeral=True
         )
