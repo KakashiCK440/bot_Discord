@@ -54,19 +54,30 @@ cd files
 pip install -r requirements.txt
 ```
 
-3. Create a `.env` file:
+3. Create a `.env` file (for local development):
 ```env
 DISCORD_TOKEN=your_bot_token_here
+# DATABASE_URL=postgresql://... (optional, for PostgreSQL)
 ```
 
-4. Configure the bot:
+4. (Optional) Set up PostgreSQL database:
+   - For production deployment, see [DATABASE_SETUP.md](DATABASE_SETUP.md)
+   - For local development, SQLite is used by default
+
+5. Configure the bot:
 - Edit `bot_config.py` for bot settings
 - Edit `config.py` for build and weapon configurations
 
-5. Run the bot:
+6. Run the bot:
 ```bash
 python bot.py
 ```
+
+## Deployment
+
+For deploying to Koyeb or other cloud platforms:
+- See [KOYEB_DEPLOYMENT.md](KOYEB_DEPLOYMENT.md) for deployment instructions
+- See [DATABASE_SETUP.md](DATABASE_SETUP.md) for database setup (required for persistent storage)
 
 ## Configuration
 
@@ -83,7 +94,13 @@ python bot.py
 
 ## Database
 
-The bot uses SQLite for data persistence. Database file: `data/bot_data.db`
+The bot supports both SQLite (local development) and PostgreSQL (production).
+
+**Local Development**: Uses SQLite automatically - `bot_data.db`
+
+**Production**: Uses PostgreSQL for persistent storage
+- Set `DATABASE_URL` environment variable
+- See [DATABASE_SETUP.md](DATABASE_SETUP.md) for setup instructions
 
 Tables:
 - `players` - Player profiles

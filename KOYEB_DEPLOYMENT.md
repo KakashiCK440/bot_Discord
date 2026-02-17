@@ -2,14 +2,29 @@
 
 ## Quick Setup
 
-### 1. Environment Variables
+### 1. Database Setup (REQUIRED)
+
+**⚠️ IMPORTANT**: You MUST set up a PostgreSQL database first, or your data will be wiped on every restart!
+
+Follow the complete guide: **[DATABASE_SETUP.md](DATABASE_SETUP.md)**
+
+Quick summary:
+1. Create a free account at [Neon.tech](https://neon.tech)
+2. Create a PostgreSQL database
+3. Copy the connection string
+4. Add it to Koyeb as `DATABASE_URL` environment variable
+
+### 2. Environment Variables
+
 Add these in Koyeb dashboard under "Environment variables":
 
+**Required:**
 ```
 DISCORD_TOKEN=your_bot_token_here
+DATABASE_URL=postgresql://username:password@host/database?sslmode=require
 ```
 
-### 2. Deployment Settings
+**Note**: The `DATABASE_URL` should be your Neon PostgreSQL connection string from [DATABASE_SETUP.md](DATABASE_SETUP.md)
 
 **In Koyeb Dashboard:**
 
@@ -21,54 +36,61 @@ DISCORD_TOKEN=your_bot_token_here
 - **Health check path**: `/health`
 - **Instance type**: Free tier is fine for small servers
 
-### 3. Important Notes
+### 4. Important Notes
 
 ✅ **What's Already Configured:**
 - Web server for health checks (required by Koyeb)
 - Procfile for worker process
 - .gitignore excludes sensitive files
 - Requirements.txt has all dependencies
+- PostgreSQL database support with automatic SQLite fallback for local development
 
-⚠️ **Database Persistence:**
-- Koyeb's free tier uses **ephemeral storage**
-- Your database will reset on each deployment
-- For production, consider:
-  - Upgrading to persistent storage
-  - Using external database (PostgreSQL)
-  - Using cloud storage for SQLite file
+✅ **Database Persistence:**
+- Your bot now uses PostgreSQL for persistent storage
+- Data will NOT be lost on restarts (as long as DATABASE_URL is set)
+- Local development automatically uses SQLite
+- See [DATABASE_SETUP.md](DATABASE_SETUP.md) for setup instructions
 
-### 4. Deployment Steps
+### 5. Deployment Steps
 
-1. **Push to GitHub** (already done ✅)
+1. **Set up Database** (if not done already):
+   - Follow [DATABASE_SETUP.md](DATABASE_SETUP.md) to create your Neon PostgreSQL database
+   - Get your connection string
+
+2. **Push to GitHub** (already done ✅)
    ```bash
    git add .
    git commit -m "Ready for Koyeb deployment"
    git push origin main
    ```
 
-2. **Create Koyeb App:**
+3. **Create Koyeb App:**
    - Go to https://app.koyeb.com
    - Click "Create App"
    - Select "GitHub" as source
    - Choose your repository: `bot_Discord`
    - Select branch: `main`
 
-3. **Configure Build:**
+4. **Configure Build:**
    - **Builder**: Buildpack
    - **Run command**: `python bot.py`
    - **Port**: `8080` (match your `WEB_SERVER_PORT`)
    - **Health check**: `/health`
 
-4. **Add Environment Variables:**
+5. **Add Environment Variables:**
    - Click "Environment variables"
    - Add `DISCORD_TOKEN` with your bot token
+   - Add `DATABASE_URL` with your Neon connection string (from DATABASE_SETUP.md)
 
-5. **Deploy:**
+6. **Deploy:**
    - Click "Deploy"
    - Wait for build to complete (2-3 minutes)
-   - Check logs for "✅ Bot is ready!"
+   - Check logs for:
+     - `✅ Logged in as YourBot`
+     - `🐘 Using PostgreSQL database`
+     - `✅ PostgreSQL connection pool created`
 
-### 5. Monitoring
+### 6. Monitoring
 
 **Check Logs:**
 - Go to your app in Koyeb dashboard
@@ -76,6 +98,8 @@ DISCORD_TOKEN=your_bot_token_here
 - Look for:
   - `✅ Logged in as YourBot`
   - `✅ Connected to X guilds`
+  - `🐘 Using PostgreSQL database`
+  - `✅ PostgreSQL connection pool created`
   - `✅ Web server started on port 8080`
 
 **Health Check:**
@@ -83,7 +107,7 @@ DISCORD_TOKEN=your_bot_token_here
 - If it fails, deployment will restart
 - Check logs if restarts happen frequently
 
-### 6. Updating Your Bot
+### 7. Updating Your Bot
 
 After making changes:
 ```bash
@@ -94,16 +118,24 @@ git push origin main
 
 Koyeb will automatically redeploy!
 
-### 7. Troubleshooting
+### 8. Troubleshooting
 
 **Bot not starting:**
 - Check `DISCORD_TOKEN` is set correctly
+- Check `DATABASE_URL` is set correctly
 - Check logs for errors
 - Verify all dependencies in `requirements.txt`
 
-**Database resets:**
-- This is normal on free tier
-- Upgrade to persistent storage or use external DB
+**Database connection errors:**
+- Verify `DATABASE_URL` is set in Koyeb environment variables
+- Check Neon database is active (free tier auto-sleeps after inactivity)
+- Ensure connection string includes `?sslmode=require`
+- See [DATABASE_SETUP.md](DATABASE_SETUP.md) for detailed troubleshooting
+
+**Data still getting wiped:**
+- Verify logs show `🐘 Using PostgreSQL database` (not SQLite)
+- If you see `📁 Using SQLite database`, the `DATABASE_URL` is not set correctly
+- Double-check the environment variable name is exactly `DATABASE_URL`
 
 **Health check failing:**
 - Verify `WEB_SERVER_PORT` matches Koyeb port setting
@@ -118,8 +150,9 @@ WEB_SERVER_PORT = int(os.getenv("PORT", 8080))
 ```
 
 ### Environment Variables
-Only set in Koyeb dashboard (never commit):
+Set in Koyeb dashboard (never commit):
 - `DISCORD_TOKEN` - Your bot token
+- `DATABASE_URL` - Your Neon PostgreSQL connection string (see [DATABASE_SETUP.md](DATABASE_SETUP.md))
 
 ## Support
 

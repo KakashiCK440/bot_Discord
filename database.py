@@ -1,10 +1,21 @@
 import sqlite3
 import logging
+import os
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, List, Dict, Tuple
 import json
 from contextlib import contextmanager
+from urllib.parse import urlparse
+
+# Try to import PostgreSQL support
+try:
+    import psycopg2
+    from psycopg2 import pool
+    from psycopg2.extras import RealDictCursor
+    POSTGRES_AVAILABLE = True
+except ImportError:
+    POSTGRES_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -15,44 +26,164 @@ ALLOWED_SETTINGS = {
     'reminder_hours_before', 'timezone'
 }
 
+class CursorWrapper:
+    """Wrapper for PostgreSQL cursor that automatically adapts ? to $1, $2, etc."""
+    def __init__(self, cursor, database):
+        self.cursor = cursor
+        self.database = database
+    
+    def execute(self, sql, params=()):
+        """Execute with automatic parameter adaptation"""
+        adapted_sql, adapted_params = self.database._adapt_params(sql, params)
+        return self.cursor.execute(adapted_sql, adapted_params)
+    
+    def fetchone(self):
+        return self.cursor.fetchone()
+    
+    def fetchall(self):
+        return self.cursor.fetchall()
+    
+    @property
+    def rowcount(self):
+        return self.cursor.rowcount
+    
+    @property
+    def lastrowid(self):
+        return self.cursor.lastrowid
+    
+    def __getattr__(self, name):
+        """Delegate all other attributes to the wrapped cursor"""
+        return getattr(self.cursor, name)
+
+
 class Database:
     def __init__(self, db_path: str = "bot_data.db"):
         """Initialize database connection"""
-        self.db_path = db_path
+        # Check for DATABASE_URL environment variable (PostgreSQL)
+        self.database_url = os.getenv('DATABASE_URL')
+        
+        if self.database_url:
+            # Use PostgreSQL
+            if not POSTGRES_AVAILABLE:
+                raise ImportError(
+                    "PostgreSQL support not available. Install psycopg2-binary: "
+                    "pip install psycopg2-binary"
+                )
+            self.db_type = 'postgresql'
+            self.db_path = None
+            self._init_postgres_pool()
+            logger.info("🐘 Using PostgreSQL database")
+        else:
+            # Use SQLite (local development)
+            self.db_type = 'sqlite'
+            self.db_path = db_path
+            self.connection_pool = None
+            logger.info(f"📁 Using SQLite database: {db_path}")
+        
         self.init_database()
+    
+    def _init_postgres_pool(self):
+        """Initialize PostgreSQL connection pool"""
+        try:
+            self.connection_pool = psycopg2.pool.SimpleConnectionPool(
+                1,  # minconn
+                10,  # maxconn
+                self.database_url
+            )
+            logger.info("✅ PostgreSQL connection pool created")
+        except Exception as e:
+            logger.error(f"Error creating PostgreSQL connection pool: {e}")
+            raise
     
     @contextmanager
     def get_connection(self):
         """Get a database connection with automatic commit/rollback and cleanup"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
+        if self.db_type == 'postgresql':
+            conn = self.connection_pool.getconn()
+            try:
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                self.connection_pool.putconn(conn)
+        else:
+            # SQLite
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            try:
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+    
+    def _get_cursor(self, conn):
+        """Get a cursor with appropriate row factory for the database type"""
+        if self.db_type == 'postgresql':
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            # Wrap the cursor to automatically adapt parameters
+            return CursorWrapper(cursor, self)
+        else:
+            return conn.cursor()
+    
+    def _adapt_sql(self, sql: str) -> str:
+        """Adapt SQL syntax for the current database type"""
+        if self.db_type == 'postgresql':
+            # Replace SQLite-specific syntax with PostgreSQL equivalents
+            sql = sql.replace('INTEGER PRIMARY KEY AUTOINCREMENT', 'SERIAL PRIMARY KEY')
+            sql = sql.replace('AUTOINCREMENT', '')
+            # Replace ? placeholders with $1, $2, etc. for PostgreSQL
+            # This is handled in execute methods
+            return sql
+        return sql
+    
+    def _adapt_params(self, sql: str, params: tuple) -> tuple:
+        """Adapt SQL parameters for the current database type"""
+        if self.db_type == 'postgresql':
+            # Convert ? placeholders to $1, $2, etc.
+            count = 1
+            adapted_sql = []
+            for char in sql:
+                if char == '?':
+                    adapted_sql.append(f'${count}')
+                    count += 1
+                else:
+                    adapted_sql.append(char)
+            return ''.join(adapted_sql), params
+        return sql, params
+    
+    def _execute(self, cursor, sql: str, params: tuple = ()):
+        """Execute a query with automatic parameter adaptation"""
+        adapted_sql, adapted_params = self._adapt_params(sql, params)
+        return cursor.execute(adapted_sql, adapted_params)
     
     def init_database(self):
         """Initialize database and create tables"""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 self.create_tables_with_cursor(cursor)
-            logger.info(f"✅ Database initialized: {self.db_path}")
+            db_info = self.database_url.split('@')[1] if self.database_url else self.db_path
+            logger.info(f"✅ Database initialized: {db_info}")
         except Exception as e:
             logger.error(f"Error initializing database: {e}")
             raise
     
     def create_tables_with_cursor(self, cursor):
         """Create all necessary tables"""
+        # Auto-increment syntax differs between SQLite and PostgreSQL
+        autoincrement = '' if self.db_type == 'postgresql' else 'AUTOINCREMENT'
+        serial_type = 'SERIAL' if self.db_type == 'postgresql' else 'INTEGER'
+        
         # Players table
-        cursor.execute("""
+        cursor.execute(f"""
             CREATE TABLE IF NOT EXISTS players (
-                user_id INTEGER,
-                guild_id INTEGER,
+                user_id BIGINT,
+                guild_id BIGINT,
                 in_game_name TEXT,
                 mastery_points INTEGER DEFAULT 0,
                 level INTEGER DEFAULT 1,
@@ -64,23 +195,22 @@ class Database:
         """)
         
         # Player weapons table
-        cursor.execute("""
+        cursor.execute(f"""
             CREATE TABLE IF NOT EXISTS player_weapons (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
-                guild_id INTEGER,
+                id {serial_type} PRIMARY KEY,
+                user_id BIGINT,
+                guild_id BIGINT,
                 weapon_name TEXT,
-                FOREIGN KEY (user_id, guild_id) REFERENCES players(user_id, guild_id),
                 UNIQUE(user_id, guild_id, weapon_name)
             )
         """)
         
         # War participants table
-        cursor.execute("""
+        cursor.execute(f"""
             CREATE TABLE IF NOT EXISTS war_participants (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
-                guild_id INTEGER,
+                id {serial_type} PRIMARY KEY,
+                user_id BIGINT,
+                guild_id BIGINT,
                 poll_week TEXT,
                 participation_type TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -91,9 +221,9 @@ class Database:
         # Server settings table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS server_settings (
-                guild_id INTEGER PRIMARY KEY,
+                guild_id BIGINT PRIMARY KEY,
                 language TEXT DEFAULT 'en',
-                war_channel_id INTEGER,
+                war_channel_id BIGINT,
                 poll_day TEXT DEFAULT 'Friday',
                 poll_time_hour INTEGER DEFAULT 15,
                 poll_time_minute INTEGER DEFAULT 0,
@@ -107,10 +237,10 @@ class Database:
         """)
         
         # Sent events tracking table
-        cursor.execute("""
+        cursor.execute(f"""
             CREATE TABLE IF NOT EXISTS sent_events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                guild_id INTEGER,
+                id {serial_type} PRIMARY KEY,
+                guild_id BIGINT,
                 event_type TEXT,
                 event_week TEXT,
                 event_day TEXT,
@@ -120,41 +250,41 @@ class Database:
         """)
         
         # Join requests table
-        cursor.execute("""
+        cursor.execute(f"""
             CREATE TABLE IF NOT EXISTS join_requests (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                guild_id INTEGER NOT NULL,
+                id {serial_type} PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                guild_id BIGINT NOT NULL,
                 language TEXT DEFAULT 'en',
                 in_game_name TEXT NOT NULL,
                 level INTEGER NOT NULL,
                 power INTEGER NOT NULL,
                 status TEXT DEFAULT 'pending',
                 requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                reviewed_by INTEGER,
+                reviewed_by BIGINT,
                 reviewed_at TIMESTAMP,
                 rejection_reason TEXT,
-                admin_message_id INTEGER
+                admin_message_id BIGINT
             )
         """)
         
         # Server join settings table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS server_join_settings (
-                guild_id INTEGER PRIMARY KEY,
-                join_channel_id INTEGER,
-                admin_review_channel_id INTEGER,
-                build_setup_channel_id INTEGER,
+                guild_id BIGINT PRIMARY KEY,
+                join_channel_id BIGINT,
+                admin_review_channel_id BIGINT,
+                build_setup_channel_id BIGINT,
                 min_power_requirement INTEGER DEFAULT 0,
-                welcome_message_id INTEGER
+                welcome_message_id BIGINT
             )
         """)
         
         # Per-user language preference (defaults to 'en' if not set)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS user_language (
-                user_id INTEGER,
-                guild_id INTEGER,
+                user_id BIGINT,
+                guild_id BIGINT,
                 language TEXT NOT NULL DEFAULT 'en',
                 PRIMARY KEY (user_id, guild_id)
             )
@@ -165,7 +295,7 @@ class Database:
     def create_tables(self):
         """Create all necessary tables - wrapper for backwards compatibility"""
         with self.get_connection() as conn:
-            cursor = conn.cursor()
+            cursor = self._get_cursor(conn)
             self.create_tables_with_cursor(cursor)
     
     # ==================== PLAYER PROFILE OPERATIONS ====================
