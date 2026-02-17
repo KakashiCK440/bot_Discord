@@ -34,7 +34,20 @@ class CursorWrapper:
     
     def execute(self, sql, params=()):
         """Execute with automatic parameter adaptation"""
+        # Ensure params is a tuple
+        if params is None:
+            params = ()
+        elif not isinstance(params, (tuple, list)):
+            params = (params,)
+        
         adapted_sql, adapted_params = self.database._adapt_params(sql, params)
+        
+        # Debug logging
+        if self.database.db_type == 'postgresql':
+            logger.debug(f"Executing SQL with {len(adapted_params)} params")
+            logger.debug(f"SQL: {adapted_sql[:100]}...")
+            logger.debug(f"Params type: {type(adapted_params)}, Params: {adapted_params}")
+        
         return self.cursor.execute(adapted_sql, adapted_params)
     
     def fetchone(self):
