@@ -312,7 +312,7 @@ class Database:
         """Create or update player profile"""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 cursor.execute("""
                     INSERT INTO players (user_id, guild_id, in_game_name, mastery_points, level, build_type, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -357,7 +357,7 @@ class Database:
             query = f"UPDATE players SET {', '.join(updates)} WHERE user_id = ? AND guild_id = ?"
             
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 cursor.execute(query, params)
                 result = cursor.rowcount > 0
             return result
@@ -369,7 +369,7 @@ class Database:
         """Get player profile"""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 cursor.execute("""
                     SELECT * FROM players WHERE user_id = ? AND guild_id = ?
                 """, (user_id, guild_id))
@@ -383,7 +383,7 @@ class Database:
         """Get all players for a guild as a dictionary keyed by user_id"""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 cursor.execute("""
                     SELECT * FROM players WHERE guild_id = ?
                 """, (guild_id,))
@@ -402,7 +402,7 @@ class Database:
                 order_by = "mastery_points"
             
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 cursor.execute(f"""
                     SELECT user_id, in_game_name, mastery_points, level, build_type,
                            ROW_NUMBER() OVER (ORDER BY {order_by} DESC, in_game_name ASC) as rank
@@ -426,7 +426,7 @@ class Database:
                 order_by = "mastery_points"
             
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 cursor.execute(f"""
                     SELECT rank FROM (
                         SELECT user_id,
@@ -446,7 +446,7 @@ class Database:
         """Update player's build type"""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 cursor.execute("""
                     UPDATE players SET build_type = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE user_id = ? AND guild_id = ?
@@ -461,7 +461,7 @@ class Database:
         """Delete a player profile and all related data (weapons, war participation, language) for this guild"""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 
                 # Delete related data first
                 cursor.execute("DELETE FROM player_weapons WHERE user_id = ? AND guild_id = ?", (user_id, guild_id))
@@ -487,7 +487,7 @@ class Database:
         """Set player's weapons (replaces existing)"""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 
                 # Delete existing weapons
                 cursor.execute("""
@@ -509,7 +509,7 @@ class Database:
         """Get player's weapons"""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 cursor.execute("""
                     SELECT weapon_name FROM player_weapons
                     WHERE user_id = ? AND guild_id = ?
@@ -524,7 +524,7 @@ class Database:
         """Get all players' weapons for a guild"""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 cursor.execute("""
                     SELECT user_id, weapon_name FROM player_weapons
                     WHERE guild_id = ?
@@ -548,7 +548,7 @@ class Database:
         """Set war participation for current week"""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 
                 # Delete existing participation for this week
                 cursor.execute("""
@@ -571,7 +571,7 @@ class Database:
         """Get war participants for a week"""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 
                 if participation_type:
                     cursor.execute("""
@@ -594,7 +594,7 @@ class Database:
         """Get war participants organized by participation type"""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 
                 cursor.execute("""
                     SELECT user_id, participation_type FROM war_participants
@@ -622,7 +622,7 @@ class Database:
         """Clear all war participants for a week"""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 cursor.execute("""
                     DELETE FROM war_participants WHERE guild_id = ? AND poll_week = ?
                 """, (guild_id, poll_week))
@@ -635,7 +635,7 @@ class Database:
         """Clear ALL war participants for a guild"""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 cursor.execute("""
                     DELETE FROM war_participants WHERE guild_id = ?
                 """, (guild_id,))
@@ -650,7 +650,7 @@ class Database:
         """Get server settings"""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 cursor.execute("""
                     SELECT * FROM server_settings WHERE guild_id = ?
                 """, (guild_id,))
@@ -678,7 +678,7 @@ class Database:
         
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 
                 # Ensure server settings exist
                 cursor.execute("""
@@ -700,7 +700,7 @@ class Database:
         """Get user's language preference for this guild. Returns 'en' if not set."""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 cursor.execute("""
                     SELECT language FROM user_language WHERE user_id = ? AND guild_id = ?
                 """, (user_id, guild_id))
@@ -714,7 +714,7 @@ class Database:
         """True if the user has explicitly chosen a language (English or Arabic) for this guild."""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 cursor.execute("""
                     SELECT 1 FROM user_language WHERE user_id = ? AND guild_id = ?
                 """, (user_id, guild_id))
@@ -730,7 +730,7 @@ class Database:
             if language not in ('en', 'ar'):
                 language = 'en'
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 cursor.execute("""
                     INSERT INTO user_language (user_id, guild_id, language)
                     VALUES (?, ?, ?)
@@ -777,7 +777,7 @@ class Database:
         """Check if an event was already sent this week/day"""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 if event_day:
                     cursor.execute("""
                         SELECT COUNT(*) as count FROM sent_events
@@ -800,7 +800,7 @@ class Database:
         """Mark an event as sent"""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 # Use proper UPSERT instead of REPLACE to avoid changing row IDs
                 cursor.execute("""
                     INSERT INTO sent_events (guild_id, event_type, event_week, event_day, sent_at)
@@ -817,7 +817,7 @@ class Database:
         """Clear old event tracking data for a specific guild"""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 cursor.execute("""
                     DELETE FROM sent_events 
                     WHERE guild_id = ? AND sent_at < ?
@@ -833,7 +833,7 @@ class Database:
         """Update join request settings for a guild"""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 cursor.execute("""
                     INSERT INTO server_join_settings 
                     (guild_id, join_channel_id, admin_review_channel_id, build_setup_channel_id, min_power_requirement, welcome_message_id)
@@ -854,7 +854,7 @@ class Database:
         """Set minimum power requirement for join requests"""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 cursor.execute("""
                     INSERT INTO server_join_settings (guild_id, min_power_requirement)
                     VALUES (?, ?)
@@ -869,7 +869,7 @@ class Database:
         """Get join request settings for a guild"""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 cursor.execute("""
                     SELECT join_channel_id, admin_review_channel_id, min_power_requirement, welcome_message_id, build_setup_channel_id
                     FROM server_join_settings
@@ -893,7 +893,7 @@ class Database:
         """Store the welcome message ID"""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 cursor.execute("""
                     UPDATE server_join_settings
                     SET welcome_message_id = ?
@@ -909,7 +909,7 @@ class Database:
         """Create a new join request and return its ID"""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 cursor.execute("""
                     INSERT INTO join_requests (user_id, guild_id, language, in_game_name, level, power, admin_message_id)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -923,7 +923,7 @@ class Database:
         """Get a join request by ID"""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 cursor.execute("""
                     SELECT id, user_id, guild_id, language, in_game_name, level, power, status,
                            requested_at, reviewed_by, reviewed_at, rejection_reason, admin_message_id
@@ -956,7 +956,7 @@ class Database:
         """Update join request status"""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 cursor.execute("""
                     UPDATE join_requests
                     SET status = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP, rejection_reason = ?
@@ -971,7 +971,7 @@ class Database:
         """Get all pending join requests for a guild"""
         try:
             with self.get_connection() as conn:
-                cursor = conn.cursor()
+                cursor = self._get_cursor(conn)
                 cursor.execute("""
                     SELECT id, user_id, language, in_game_name, level, power, requested_at
                     FROM join_requests
