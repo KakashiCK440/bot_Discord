@@ -151,17 +151,12 @@ class JoinRequestModal(ui.Modal):
         self.db = db
         self.LANGUAGES = LANGUAGES
         
-        # Get translated labels
-        title = get_text(db, LANGUAGES, guild_id, "join_request_title", user_id)
-        name_label = get_text(db, LANGUAGES, guild_id, "join_name_label", user_id)
-        level_label = get_text(db, LANGUAGES, guild_id, "join_level_label", user_id)
-        power_label = get_text(db, LANGUAGES, guild_id, "join_power_label", user_id)
-        
-        super().__init__(title=title)
+        # Use hardcoded bilingual text to avoid database queries during init
+        super().__init__(title="Join Request | طلب الانضمام")
         
         # Add input fields
         self.name_input = ui.TextInput(
-            label=name_label,
+            label="In-Game Name | الاسم في اللعبة",
             placeholder="Your in-game name" if language == "en" else "اسمك في اللعبة",
             required=True,
             max_length=50
@@ -169,7 +164,7 @@ class JoinRequestModal(ui.Modal):
         self.add_item(self.name_input)
         
         self.level_input = ui.TextInput(
-            label=level_label,
+            label="Level | المستوى",
             placeholder="e.g., 60" if language == "en" else "مثال: 60",
             required=True,
             max_length=3
@@ -177,7 +172,7 @@ class JoinRequestModal(ui.Modal):
         self.add_item(self.level_input)
         
         self.power_input = ui.TextInput(
-            label=power_label,
+            label="Power | القوة",
             placeholder="e.g., 50000" if language == "en" else "مثال: 50000",
             required=True,
             max_length=10

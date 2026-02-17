@@ -132,6 +132,7 @@ class ProfileSetupButton(discord.ui.View):
                 pass
 
 
+
 class CompleteProfileModal(discord.ui.Modal):
     """Modal for completing profile setup with all fields"""
     def __init__(self, guild_id: int, user_id: int, db, LANGUAGES):
@@ -140,23 +141,23 @@ class CompleteProfileModal(discord.ui.Modal):
         self.db = db
         self.LANGUAGES = LANGUAGES
         
-        title = get_text(db, LANGUAGES, guild_id, "profile_setup_title", user_id)
-        super().__init__(title=title)
+        # Use hardcoded bilingual text to avoid database queries during init
+        super().__init__(title="Profile Setup | إعداد الملف الشخصي")
         self.add_item(discord.ui.TextInput(
-            label=get_text(db, LANGUAGES, guild_id, "modal_ign_label", user_id),
-            placeholder=get_text(db, LANGUAGES, guild_id, "modal_ign_placeholder", user_id),
+            label="In-Game Name | الاسم في اللعبة",
+            placeholder="Your in-game name | اسمك في اللعبة",
             required=True,
             max_length=50
         ))
         self.add_item(discord.ui.TextInput(
-            label=get_text(db, LANGUAGES, guild_id, "modal_level_label", user_id),
-            placeholder=get_text(db, LANGUAGES, guild_id, "modal_level_placeholder", user_id),
+            label="Level | المستوى",
+            placeholder="e.g., 60 | مثال: 60",
             required=True,
             max_length=3
         ))
         self.add_item(discord.ui.TextInput(
-            label=get_text(db, LANGUAGES, guild_id, "modal_mastery_label", user_id),
-            placeholder=get_text(db, LANGUAGES, guild_id, "modal_mastery_placeholder", user_id),
+            label="Mastery Points | نقاط الإتقان",
+            placeholder="e.g., 50000 | مثال: 50000",
             required=True,
             max_length=10
         ))
