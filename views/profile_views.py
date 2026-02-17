@@ -1,0 +1,248 @@
+"""
+Profile setup views for Discord bot.
+Handles language selection, profile setup button, and complete profile modal.
+"""
+
+import discord
+from config import BUILDS, BUILD_ICONS, WEAPON_ICONS
+from utils.helpers import get_text, update_member_nickname
+from locales import LANGUAGES
+
+
+class LanguageSelectView(discord.ui.View):
+    """Let user choose English or Arabic before continuing to profile setup."""
+    def __init__(self, guild_id: int, db, LANGUAGES):
+        super().__init__(timeout=60)
+        self.guild_id = guild_id
+        self.db = db
+        self.LANGUAGES = LANGUAGES
+        
+        # Add language dropdown
+        self.add_item(LanguageDropdown(guild_id, db, LANGUAGES))
+
+
+class LanguageDropdown(discord.ui.Select):
+    """Dropdown for language selection"""
+    def __init__(self, guild_id: int, db, LANGUAGES):
+        self.guild_id = guild_id
+        self.db = db
+        self.LANGUAGES = LANGUAGES
+        
+        options = [
+            discord.SelectOption(
+                label="English",
+                value="en",
+                emoji="🇬🇧",
+                description="Select English language"
+            ),
+            discord.SelectOption(
+                label="العربية",
+                value="ar",
+                emoji="🇸🇦",
+                description="اختر اللغة العربية"
+            )
+        ]
+        
+        super().__init__(
+            placeholder="Choose your language / اختر لغتك",
+            min_values=1,
+            max_values=1,
+            options=options
+        )
+    
+    async def callback(self, interaction: discord.Interaction):
+        try:
+            guild_id = interaction.guild_id
+            user_id = interaction.user.id
+            
+            # Check if user already has a COMPLETE profile (with weapons set)
+            # This allows users from approved join requests to complete their setup
+            existing_player = self.db.get_player(user_id, guild_id)
+            if existing_player:
+                # Check if they have weapons - if they do, profile is complete
+                weapons = self.db.get_player_weapons(user_id, guild_id)
+                if weapons and len(weapons) > 0:
+                    await interaction.response.send_message(
+                        "❌ You already have a complete profile! You cannot change your language selection.\n\n"
+                        "Use `/profile` to view your profile or `/resetbuild` to change your build.",
+                        ephemeral=True
+                    )
+                    return
+                # If they have a profile but no weapons, let them continue (join request users)
+            
+            lang = self.values[0]
+            
+            # Check if user already selected a language (has language preference but no profile yet)
+            current_lang = self.db.get_user_language(user_id, guild_id)
+            if current_lang and current_lang != 'en':  # 'en' is default, so ignore it
+                await interaction.response.send_message(
+                    "❌ You already selected a language! Please complete the profile form that appeared earlier.\n\n"
+                    "If you closed it, please run `/setupprofile` again.",
+                    ephemeral=True
+                )
+                return
+            
+            self.db.set_user_language(user_id, guild_id, lang)
+            
+            # Disable the dropdown immediately to prevent re-selection
+            self.disabled = True
+            
+            # Send modal (ephemeral message will auto-delete after interaction)
+            modal = CompleteProfileModal(guild_id, user_id, self.db, self.LANGUAGES)
+            await interaction.response.send_modal(modal)
+            
+            # Edit the message to show selection and disable dropdown
+            # This needs to happen after modal is sent, so we use a background task
+            import asyncio
+            
+            async def update_message():
+                await asyncio.sleep(0.3)  # Small delay to ensure modal is sent
+                lang_name = "English" if lang == "en" else "العربية"
+                try:
+                    await interaction.message.edit(
+                        content=f"✅ Language selected: **{lang_name}**\n\n_Please fill out the profile form._",
+                        view=self.view
+                    )
+                except Exception as e:
+                    # Message might be deleted or not editable (ephemeral)
+                    pass
+            
+            asyncio.create_task(update_message())
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Error in language selection: {e}", exc_info=True)
+            try:
+                await interaction.response.send_message(
+                    "❌ An error occurred. Please try again later.",
+                    ephemeral=True
+                )
+            except:
+                pass
+
+
+class ProfileSetupButton(discord.ui.View):
+    """Single button: first time shows language choice, then profile form (label uses guild language when guild_id given)"""
+    def __init__(self, guild_id: int = None, db=None, LANGUAGES=None):
+        super().__init__(timeout=None)
+        self.db = db
+        self.LANGUAGES = LANGUAGES
+        self.guild_id = guild_id
+        label = get_text(db, LANGUAGES, guild_id, "setup_profile_btn") if guild_id is not None else LANGUAGES["en"].get("setup_profile_btn", "📝 Setup Your Profile")
+        btn = discord.ui.Button(
+            label=label,
+            style=discord.ButtonStyle.primary,
+            custom_id="setup_profile_button",
+            emoji="🎮"
+        )
+        btn.callback = self._setup_callback
+        self.add_item(btn)
+    
+    async def _setup_callback(self, interaction: discord.Interaction):
+        try:
+            guild_id = interaction.guild_id
+            user_id = interaction.user.id
+            prompt = get_text(self.db, self.LANGUAGES, guild_id, "choose_language_prompt", user_id)
+            await interaction.response.send_message(
+                f"**{get_text(self.db, self.LANGUAGES, guild_id, 'choose_language', user_id)}**\n\n{prompt}",
+                view=LanguageSelectView(guild_id, self.db, self.LANGUAGES),
+                ephemeral=True
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Error in profile setup: {e}", exc_info=True)
+            try:
+                await interaction.response.send_message(
+                    "❌ An error occurred. Please try again later.",
+                    ephemeral=True
+                )
+            except:
+                pass
+
+
+class CompleteProfileModal(discord.ui.Modal):
+    """Modal for completing profile setup with all fields"""
+    def __init__(self, guild_id: int, user_id: int, db, LANGUAGES):
+        self.guild_id = guild_id
+        self.user_id = user_id
+        self.db = db
+        self.LANGUAGES = LANGUAGES
+        
+        title = get_text(db, LANGUAGES, guild_id, "profile_setup_title", user_id)
+        super().__init__(title=title)
+        self.add_item(discord.ui.TextInput(
+            label=get_text(db, LANGUAGES, guild_id, "modal_ign_label", user_id),
+            placeholder=get_text(db, LANGUAGES, guild_id, "modal_ign_placeholder", user_id),
+            required=True,
+            max_length=50
+        ))
+        self.add_item(discord.ui.TextInput(
+            label=get_text(db, LANGUAGES, guild_id, "modal_level_label", user_id),
+            placeholder=get_text(db, LANGUAGES, guild_id, "modal_level_placeholder", user_id),
+            required=True,
+            max_length=3
+        ))
+        self.add_item(discord.ui.TextInput(
+            label=get_text(db, LANGUAGES, guild_id, "modal_mastery_label", user_id),
+            placeholder=get_text(db, LANGUAGES, guild_id, "modal_mastery_placeholder", user_id),
+            required=True,
+            max_length=10
+        ))
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        # Import BuildSelectView here to avoid circular imports
+        from views.build_views import BuildSelectView
+        
+        guild_id = interaction.guild_id
+        user_id = interaction.user.id
+        children = self.children
+        ign_value = children[0].value
+        level_value = children[1].value
+        mastery_value = children[2].value
+        
+        try:
+            level_val = int(level_value)
+            if level_val < 1 or level_val > 100:
+                await interaction.response.send_message(
+                    get_text(self.db, self.LANGUAGES, guild_id, "err_level_range", user_id),
+                    ephemeral=True
+                )
+                return
+            
+            mastery_val = int(mastery_value.replace(",", "").replace(" ", ""))
+            if mastery_val < 0:
+                await interaction.response.send_message(
+                    get_text(self.db, self.LANGUAGES, guild_id, "err_mastery_positive", user_id),
+                    ephemeral=True
+                )
+                return
+            
+            self.db.create_or_update_player(
+                user_id, guild_id,
+                ign_value,
+                mastery_val,
+                level_val,
+                "DPS"
+            )
+            
+            member = interaction.user
+            nickname_success, nickname_msg = await update_member_nickname(member, ign_value)
+            
+            build_view = BuildSelectView(self.db, self.LANGUAGES)
+            
+            # Send build selection directly without showing profile created message
+            # This keeps the chat clean
+            build_msg = get_text(self.db, self.LANGUAGES, guild_id, 'now_select_build', user_id)
+            await interaction.response.send_message(
+                build_msg,
+                view=BuildSelectView(self.db, self.LANGUAGES, guild_id),
+                ephemeral=True
+            )
+            
+            # Note: The language selection message is ephemeral and will auto-delete
+            # after the user interacts with the modal. No need to manually delete it.
+            # The profile existence check in /setupprofile prevents re-running setup.
+        except ValueError:
+            await interaction.response.send_message(
+                get_text(self.db, self.LANGUAGES, guild_id, "err_invalid_numbers", user_id),
+                ephemeral=True
+            )
