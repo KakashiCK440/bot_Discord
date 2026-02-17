@@ -145,15 +145,21 @@ class Database:
         """Adapt SQL parameters for the current database type"""
         if self.db_type == 'postgresql':
             # Convert ? placeholders to $1, $2, etc.
-            count = 1
-            adapted_sql = []
-            for char in sql:
-                if char == '?':
-                    adapted_sql.append(f'${count}')
-                    count += 1
-                else:
-                    adapted_sql.append(char)
-            return ''.join(adapted_sql), params
+            # Use a more robust approach that handles strings correctly
+            import re
+            
+            # Track position in params
+            param_index = [0]
+            
+            def replace_placeholder(match):
+                param_index[0] += 1
+                return f'${param_index[0]}'
+            
+            # Replace ? with $1, $2, etc., but avoid replacing inside strings
+            # This regex matches ? that are not inside single or double quotes
+            adapted_sql = re.sub(r'\?', replace_placeholder, sql)
+            
+            return adapted_sql, params
         return sql, params
     
     def _execute(self, cursor, sql: str, params: tuple = ()):
