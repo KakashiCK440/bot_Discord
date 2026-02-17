@@ -192,7 +192,7 @@ class Database:
                 cursor = conn.cursor()
                 cursor.execute("""
                     INSERT INTO players (user_id, guild_id, in_game_name, mastery_points, level, build_type, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+                    VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
                     ON CONFLICT(user_id, guild_id) DO UPDATE SET
                         in_game_name = EXCLUDED.in_game_name,
                         mastery_points = EXCLUDED.mastery_points,
@@ -211,7 +211,7 @@ class Database:
             with self.get_connection() as conn:
                 cursor = conn.cursor(cursor_factory=RealDictCursor)
                 cursor.execute("""
-                    SELECT * FROM players WHERE user_id = $1 AND guild_id = $2
+                    SELECT * FROM players WHERE user_id = %s AND guild_id = %s
                 """, (user_id, guild_id))
                 row = cursor.fetchone()
                 return dict(row) if row else None
@@ -226,8 +226,8 @@ class Database:
                 cursor = conn.cursor()
                 cursor.execute("""
                     UPDATE players 
-                    SET build_type = $1, updated_at = CURRENT_TIMESTAMP
-                    WHERE user_id = $2 AND guild_id = $3
+                    SET build_type = %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE user_id = %s AND guild_id = %s
                 """, (build_type, user_id, guild_id))
             return True
         except Exception as e:
@@ -241,15 +241,15 @@ class Database:
                 cursor = conn.cursor()
                 # Delete player (weapons will cascade)
                 cursor.execute("""
-                    DELETE FROM players WHERE user_id = $1 AND guild_id = $2
+                    DELETE FROM players WHERE user_id = %s AND guild_id = %s
                 """, (user_id, guild_id))
                 # Also delete from war participants
                 cursor.execute("""
-                    DELETE FROM war_participants WHERE user_id = $1 AND guild_id = $2
+                    DELETE FROM war_participants WHERE user_id = %s AND guild_id = %s
                 """, (user_id, guild_id))
                 # Delete language preference
                 cursor.execute("""
-                    DELETE FROM user_language WHERE user_id = $1 AND guild_id = $2
+                    DELETE FROM user_language WHERE user_id = %s AND guild_id = %s
                 """, (user_id, guild_id))
             return True
         except Exception as e:
@@ -265,7 +265,7 @@ class Database:
                 cursor = conn.cursor()
                 cursor.execute("""
                     INSERT INTO player_weapons (user_id, guild_id, weapon_name)
-                    VALUES ($1, $2, $3)
+                    VALUES (%s, %s, %s)
                     ON CONFLICT DO NOTHING
                 """, (user_id, guild_id, weapon_name))
             return True
@@ -280,7 +280,7 @@ class Database:
                 cursor = conn.cursor()
                 cursor.execute("""
                     SELECT weapon_name FROM player_weapons 
-                    WHERE user_id = $1 AND guild_id = $2
+                    WHERE user_id = %s AND guild_id = %s
                 """, (user_id, guild_id))
                 return [row[0] for row in cursor.fetchall()]
         except Exception as e:
@@ -294,7 +294,7 @@ class Database:
                 cursor = conn.cursor()
                 cursor.execute("""
                     DELETE FROM player_weapons 
-                    WHERE user_id = $1 AND guild_id = $2 AND weapon_name = $3
+                    WHERE user_id = %s AND guild_id = %s AND weapon_name = %s
                 """, (user_id, guild_id, weapon_name))
             return True
         except Exception as e:
@@ -310,7 +310,7 @@ class Database:
                 cursor = conn.cursor()
                 cursor.execute("""
                     INSERT INTO war_participants (user_id, guild_id, username, participation_status, timestamp)
-                    VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+                    VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
                     ON CONFLICT(user_id, guild_id) DO UPDATE SET
                         participation_status = EXCLUDED.participation_status,
                         timestamp = CURRENT_TIMESTAMP
@@ -327,7 +327,7 @@ class Database:
                 cursor = conn.cursor(cursor_factory=RealDictCursor)
                 cursor.execute("""
                     SELECT * FROM war_participants 
-                    WHERE guild_id = $1
+                    WHERE guild_id = %s
                     ORDER BY timestamp DESC
                 """, (guild_id,))
                 return [dict(row) for row in cursor.fetchall()]
@@ -341,7 +341,7 @@ class Database:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    DELETE FROM war_participants WHERE guild_id = $1
+                    DELETE FROM war_participants WHERE guild_id = %s
                 """, (guild_id,))
             return True
         except Exception as e:
@@ -357,7 +357,7 @@ class Database:
                 cursor = conn.cursor()
                 cursor.execute("""
                     INSERT INTO user_language (user_id, guild_id, language)
-                    VALUES ($1, $2, $3)
+                    VALUES (%s, %s, %s)
                     ON CONFLICT(user_id, guild_id) DO UPDATE SET
                         language = EXCLUDED.language
                 """, (user_id, guild_id, language))
@@ -372,7 +372,7 @@ class Database:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT language FROM user_language WHERE user_id = $1 AND guild_id = $2
+                    SELECT language FROM user_language WHERE user_id = %s AND guild_id = %s
                 """, (user_id, guild_id))
                 row = cursor.fetchone()
                 return row[0] if row else 'ar'
@@ -386,7 +386,7 @@ class Database:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT 1 FROM user_language WHERE user_id = $1 AND guild_id = $2
+                    SELECT 1 FROM user_language WHERE user_id = %s AND guild_id = %s
                 """, (user_id, guild_id))
                 return cursor.fetchone() is not None
         except Exception as e:
@@ -401,7 +401,7 @@ class Database:
             with self.get_connection() as conn:
                 cursor = conn.cursor(cursor_factory=RealDictCursor)
                 cursor.execute("""
-                    SELECT * FROM server_settings WHERE guild_id = $1
+                    SELECT * FROM server_settings WHERE guild_id = %s
                 """, (guild_id,))
                 row = cursor.fetchone()
                 
@@ -410,7 +410,7 @@ class Database:
                 else:
                     # Create default settings
                     cursor.execute("""
-                        INSERT INTO server_settings (guild_id) VALUES ($1)
+                        INSERT INTO server_settings (guild_id) VALUES (%s)
                     """, (guild_id,))
             # Recursively get the newly created settings
             return self.get_server_settings(guild_id)
@@ -430,15 +430,15 @@ class Database:
                 # Ensure server settings exist
                 cursor.execute("""
                     INSERT INTO server_settings (guild_id) 
-                    VALUES ($1)
+                    VALUES (%s)
                     ON CONFLICT (guild_id) DO NOTHING
                 """, (guild_id,))
                 
                 # Update the specific setting
                 cursor.execute(f"""
                     UPDATE server_settings 
-                    SET {setting_name} = $1
-                    WHERE guild_id = $2
+                    SET {setting_name} = %s
+                    WHERE guild_id = %s
                 """, (value, guild_id))
             return True
         except Exception as e:
@@ -454,7 +454,7 @@ class Database:
                 cursor = conn.cursor()
                 cursor.execute("""
                     INSERT INTO sent_events (guild_id, event_type, sent_at)
-                    VALUES ($1, $2, CURRENT_TIMESTAMP)
+                    VALUES (%s, %s, CURRENT_TIMESTAMP)
                 """, (guild_id, event_type))
             return True
         except Exception as e:
@@ -468,7 +468,7 @@ class Database:
                 cursor = conn.cursor()
                 cursor.execute("""
                     DELETE FROM sent_events 
-                    WHERE guild_id = $1 AND sent_at < $2
+                    WHERE guild_id = %s AND sent_at < %s
                 """, (guild_id, older_than_date.strftime("%Y-%m-%d %H:%M:%S")))
             return True
         except Exception as e:
@@ -485,7 +485,7 @@ class Database:
                 cursor = conn.cursor()
                 cursor.execute("""
                     INSERT INTO join_requests (user_id, guild_id, username, in_game_name, power_level)
-                    VALUES ($1, $2, $3, $4, $5)
+                    VALUES (%s, %s, %s, %s, %s)
                     RETURNING id
                 """, (user_id, guild_id, username, in_game_name, power_level))
                 return cursor.fetchone()[0]
@@ -499,7 +499,7 @@ class Database:
             with self.get_connection() as conn:
                 cursor = conn.cursor(cursor_factory=RealDictCursor)
                 cursor.execute("""
-                    SELECT * FROM join_requests WHERE id = $1
+                    SELECT * FROM join_requests WHERE id = %s
                 """, (request_id,))
                 row = cursor.fetchone()
                 return dict(row) if row else None
@@ -514,7 +514,7 @@ class Database:
                 cursor = conn.cursor(cursor_factory=RealDictCursor)
                 cursor.execute("""
                     SELECT * FROM join_requests 
-                    WHERE guild_id = $1 AND status = 'pending'
+                    WHERE guild_id = %s AND status = 'pending'
                     ORDER BY created_at DESC
                 """, (guild_id,))
                 return [dict(row) for row in cursor.fetchall()]
@@ -529,8 +529,8 @@ class Database:
                 cursor = conn.cursor()
                 cursor.execute("""
                     UPDATE join_requests 
-                    SET status = $1, processed_at = CURRENT_TIMESTAMP, processed_by = $2
-                    WHERE id = $3
+                    SET status = %s, processed_at = CURRENT_TIMESTAMP, processed_by = %s
+                    WHERE id = %s
                 """, (status, processed_by, request_id))
             return True
         except Exception as e:
@@ -546,7 +546,7 @@ class Database:
                 cursor.execute("""
                     INSERT INTO server_join_settings 
                     (guild_id, join_channel_id, approval_channel_id, min_power_requirement)
-                    VALUES ($1, $2, $3, $4)
+                    VALUES (%s, %s, %s, %s)
                     ON CONFLICT(guild_id) DO UPDATE SET
                         join_channel_id = EXCLUDED.join_channel_id,
                         approval_channel_id = EXCLUDED.approval_channel_id,
@@ -564,7 +564,7 @@ class Database:
                 cursor = conn.cursor(cursor_factory=RealDictCursor)
                 cursor.execute("""
                     SELECT * FROM server_join_settings 
-                    WHERE guild_id = $1
+                    WHERE guild_id = %s
                 """, (guild_id,))
                 row = cursor.fetchone()
                 return dict(row) if row else None
@@ -579,8 +579,8 @@ class Database:
                 cursor = conn.cursor()
                 cursor.execute("""
                     UPDATE server_join_settings 
-                    SET welcome_message_id = $1
-                    WHERE guild_id = $2
+                    SET welcome_message_id = %s
+                    WHERE guild_id = %s
                 """, (message_id, guild_id))
             return True
         except Exception as e:
