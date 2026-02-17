@@ -137,7 +137,8 @@ class Database:
     def _get_cursor(self, conn):
         """Get a cursor with appropriate row factory for the database type"""
         if self.db_type == 'postgresql':
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            # Use regular cursor for testing parameter binding
+            cursor = conn.cursor()
             # Wrap the cursor to automatically adapt parameters
             return CursorWrapper(cursor, self)
         else:
