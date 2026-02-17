@@ -290,6 +290,28 @@ class Database:
             logger.error(f"Error getting player weapons: {e}")
             return []
     
+    def set_player_weapons(self, user_id: int, guild_id: int, weapons: List[str]) -> bool:
+        """Set weapons for a player (replaces existing weapons)"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                # Delete existing weapons
+                cursor.execute("""
+                    DELETE FROM player_weapons 
+                    WHERE user_id = %s AND guild_id = %s
+                """, (user_id, guild_id))
+                
+                # Insert new weapons
+                for weapon in weapons:
+                    cursor.execute("""
+                        INSERT INTO player_weapons (user_id, guild_id, weapon_name)
+                        VALUES (%s, %s, %s)
+                    """, (user_id, guild_id, weapon))
+            return True
+        except Exception as e:
+            logger.error(f"Error setting player weapons: {e}")
+            return False
+    
     def remove_weapon(self, user_id: int, guild_id: int, weapon_name: str) -> bool:
         """Remove a weapon from player's inventory"""
         try:
