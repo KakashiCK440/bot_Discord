@@ -291,7 +291,8 @@ class AdminApprovalView(ui.View):
                 
                 # Get request data to create profile
                 with self.db.get_connection() as conn:
-                    cursor = conn.cursor()
+                    from psycopg2.extras import RealDictCursor
+                    cursor = conn.cursor(cursor_factory=RealDictCursor)
                     cursor.execute("""
                         SELECT in_game_name, level, power 
                         FROM join_requests 
