@@ -380,22 +380,18 @@ class Database:
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor(cursor_factory=RealDictCursor)
-                if poll_week:
-                    cursor.execute("""
-                        SELECT * FROM war_participants 
-                        WHERE guild_id = %s AND poll_week = %s
-                    """, (guild_id, poll_week))
-                else:
-                    cursor.execute("""
-                        SELECT * FROM war_participants 
-                        WHERE guild_id = %s
-                    """, (guild_id,))
+                cursor.execute("""
+                    SELECT * FROM war_participants 
+                    WHERE guild_id = %s
+                """, (guild_id,))
                 rows = [dict(row) for row in cursor.fetchall()]
                 result = {"saturday": [], "sunday": [], "both": [], "not_playing": []}
                 for row in rows:
-                    ptype = row.get("participation_type", "not_playing")
+                    ptype = row.get("participation_status", "not_playing")
                     if ptype in result:
                         result[ptype].append(row)
+                    else:
+                        result["not_playing"].append(row)
                 return result
         except Exception as e:
             logger.error(f"Error getting war participants by type: {e}")
@@ -407,26 +403,26 @@ class Database:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    INSERT INTO war_participants (user_id, guild_id, poll_week, participation_type)
-                    VALUES (%s, %s, %s, %s)
-                    ON CONFLICT (user_id, guild_id, poll_week) DO UPDATE SET
-                        participation_type = EXCLUDED.participation_type,
+                    INSERT INTO war_participants (user_id, guild_id, participation_status)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (user_id, guild_id) DO UPDATE SET
+                        participation_status = EXCLUDED.participation_status,
                         timestamp = CURRENT_TIMESTAMP
-                """, (user_id, guild_id, poll_week, participation_type))
+                """, (user_id, guild_id, participation_type))
             return True
         except Exception as e:
             logger.error(f"Error setting war participation: {e}")
             return False
     
     def clear_war_participants(self, guild_id: int, poll_week: str) -> bool:
-        """Clear war participants for a specific poll week"""
+        """Clear war participants for a guild"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
                     DELETE FROM war_participants 
-                    WHERE guild_id = %s AND poll_week = %s
-                """, (guild_id, poll_week))
+                    WHERE guild_id = %s
+                """, (guild_id,))
             return True
         except Exception as e:
             logger.error(f"Error clearing war participants: {e}")
@@ -740,18 +736,15 @@ class Database:
                 exists = cursor.fetchone() is not None
                 
                 if exists:
-                    # Update existing settings
+                    # Update existing settings - use actual column names
                     updates = []
                     params = []
                     if join_channel_id is not None:
                         updates.append("join_channel_id = %s")
                         params.append(join_channel_id)
                     if admin_review_channel_id is not None:
-                        updates.append("admin_review_channel_id = %s")
+                        updates.append("approval_channel_id = %s")
                         params.append(admin_review_channel_id)
-                    if build_setup_channel_id is not None:
-                        updates.append("build_setup_channel_id = %s")
-                        params.append(build_setup_channel_id)
                     if min_power_requirement is not None:
                         updates.append("min_power_requirement = %s")
                         params.append(min_power_requirement)
@@ -764,12 +757,12 @@ class Database:
                             WHERE guild_id = %s
                         """, params)
                 else:
-                    # Insert new settings
+                    # Insert new settings using actual column names
                     cursor.execute("""
                         INSERT INTO server_join_settings 
-                        (guild_id, join_channel_id, admin_review_channel_id, build_setup_channel_id, min_power_requirement)
-                        VALUES (%s, %s, %s, %s, %s)
-                    """, (guild_id, join_channel_id, admin_review_channel_id, build_setup_channel_id, min_power_requirement or 0))
+                        (guild_id, join_channel_id, approval_channel_id, min_power_requirement)
+                        VALUES (%s, %s, %s, %s)
+                    """, (guild_id, join_channel_id, admin_review_channel_id or join_channel_id, min_power_requirement or 0))
             return True
         except Exception as e:
             logger.error(f"Error updating join settings: {e}")

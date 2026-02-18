@@ -93,8 +93,7 @@ class ProfileCog(commands.Cog):
         nickname_success, nickname_msg = await update_member_nickname(member, in_game_name)
         
         # Calculate rank
-        all_players_dict = self.db.get_all_players(guild_id)
-        all_players = list(all_players_dict.values())
+        all_players = self.db.get_all_players(guild_id)
         sorted_players = sorted(all_players, key=lambda p: p['mastery_points'], reverse=True)
         rank = next((i+1 for i, p in enumerate(sorted_players) if p['user_id'] == user_id), 0)
         
@@ -147,8 +146,7 @@ class ProfileCog(commands.Cog):
             return
         
         # Calculate rank
-        all_players_dict = self.db.get_all_players(guild_id)
-        all_players = list(all_players_dict.values())
+        all_players = self.db.get_all_players(guild_id)
         sorted_players = sorted(all_players, key=lambda p: p['mastery_points'], reverse=True)
         rank = next((i+1 for i, p in enumerate(sorted_players) if p['user_id'] == target_id), 0)
         
@@ -256,8 +254,7 @@ class ProfileCog(commands.Cog):
         )
         
         # Calculate new rank
-        all_players_dict = self.db.get_all_players(guild_id)
-        all_players = list(all_players_dict.values())
+        all_players = self.db.get_all_players(guild_id)
         sorted_players = sorted(all_players, key=lambda p: p['mastery_points'], reverse=True)
         rank = next((i+1 for i, p in enumerate(sorted_players) if p['user_id'] == user_id), 0)
         
@@ -412,8 +409,7 @@ class ProfileCog(commands.Cog):
         sort_by = type.value if type else "mastery"
         limit = max(1, min(limit, 25))  # Clamp between 1 and 25
         
-        all_players_dict = self.db.get_all_players(guild_id)
-        all_players = list(all_players_dict.values())
+        all_players = self.db.get_all_players(guild_id)
         
         if not all_players:
             await interaction.response.send_message(

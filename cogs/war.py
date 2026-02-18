@@ -33,11 +33,12 @@ class WarCog(commands.Cog):
         """Post war poll (embed in your language)"""
         guild_id = interaction.guild_id
         uid = interaction.user.id
+        await interaction.response.defer(ephemeral=True)
         config = get_war_config(self.db, guild_id)
         
         channel_id = config.get("war_channel_id")
         if not channel_id:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 get_text(self.db, LANGUAGES, guild_id, "err_war_channel_not_set", uid),
                 ephemeral=True
             )
@@ -45,7 +46,7 @@ class WarCog(commands.Cog):
         
         channel = interaction.guild.get_channel(channel_id)
         if not channel:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 get_text(self.db, LANGUAGES, guild_id, "err_war_channel_not_found", uid),
                 ephemeral=True
             )
@@ -117,7 +118,7 @@ class WarCog(commands.Cog):
         
         await channel.send(embed=embed, view=view)
         
-        await interaction.response.send_message(
+        await interaction.followup.send(
             get_text(self.db, LANGUAGES, guild_id, "war_poll_posted", uid),
             ephemeral=True
         )
@@ -132,6 +133,7 @@ class WarCog(commands.Cog):
         """Show war participants with detailed build and weapon information"""
         guild_id = interaction.guild_id
         user_id = interaction.user.id
+        await interaction.response.defer()
         
         participants = get_war_participants(self.db, guild_id)
         
@@ -288,7 +290,7 @@ class WarCog(commands.Cog):
         
         embed.set_footer(text=get_text(self.db, LANGUAGES, guild_id, "footer_builds", user_id))
         
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
     
     @app_commands.command(name="setwar", description="Configure war settings (Admin)")
     @app_commands.describe(
@@ -585,9 +587,12 @@ class WarPollView(discord.ui.View):
         # Get user's previous vote (if any)
         participants_by_type = self.db.get_war_participants_by_type(guild_id, poll_week)
         previous_choice = None
-        for participation_type, user_ids in participants_by_type.items():
-            if user_id in user_ids:
-                previous_choice = participation_type
+        for participation_type, player_list in participants_by_type.items():
+            for p in player_list:
+                if p.get("user_id") == user_id:
+                    previous_choice = participation_type
+                    break
+            if previous_choice:
                 break
         
         # Set new participation
