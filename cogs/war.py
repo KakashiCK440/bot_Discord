@@ -571,10 +571,13 @@ class WarPollView(discord.ui.View):
         guild_id = interaction.guild_id
         user_id = interaction.user.id
         
+        # Defer immediately - we have multiple DB calls ahead
+        await interaction.response.defer(ephemeral=True)
+        
         # Check if user has a profile first
         player = self.db.get_player(user_id, guild_id)
         if not player:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 get_text(self.db, LANGUAGES, guild_id, "err_no_profile_war", user_id),
                 ephemeral=True
             )
@@ -640,7 +643,7 @@ class WarPollView(discord.ui.View):
             else:  # none
                 message = get_text(self.db, LANGUAGES, guild_id, "registered_not_playing", user_id)
         
-        await interaction.response.send_message(message, ephemeral=True)
+        await interaction.followup.send(message, ephemeral=True)
 
 
 async def setup(bot):

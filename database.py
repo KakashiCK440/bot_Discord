@@ -61,6 +61,11 @@ class Database:
         finally:
             self.connection_pool.putconn(conn)
     
+    async def async_run(self, func, *args, **kwargs):
+        """Run a synchronous DB method in a thread to avoid blocking the event loop"""
+        import asyncio
+        return await asyncio.to_thread(func, *args, **kwargs)
+    
     def init_database(self):
         """Initialize database and create tables"""
         try:

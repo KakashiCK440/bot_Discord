@@ -20,10 +20,10 @@ def get_war_participants(db, guild_id: int, poll_week: str = None) -> dict:
     participants_by_type = db.get_war_participants_by_type(guild_id, poll_week)
 
     return {
-        "saturday_players": set(participants_by_type["saturday"]),
-        "sunday_players": set(participants_by_type["sunday"]),
-        "both_days_players": set(participants_by_type["both"]),
-        "not_playing": set(participants_by_type["not_playing"])
+        "saturday_players": set(p["user_id"] for p in participants_by_type["saturday"]),
+        "sunday_players": set(p["user_id"] for p in participants_by_type["sunday"]),
+        "both_days_players": set(p["user_id"] for p in participants_by_type["both"]),
+        "not_playing": set(p["user_id"] for p in participants_by_type["not_playing"])
     }
 
 
