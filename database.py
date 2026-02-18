@@ -222,6 +222,21 @@ class Database:
             logger.error(f"Error getting player: {e}")
             return None
     
+    def get_all_players(self, guild_id: int) -> List[Dict]:
+        """Get all players in a guild ordered by mastery points"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor(cursor_factory=RealDictCursor)
+                cursor.execute("""
+                    SELECT * FROM players 
+                    WHERE guild_id = %s
+                    ORDER BY mastery_points DESC
+                """, (guild_id,))
+                return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Error getting all players: {e}")
+            return []
+    
     def update_player_build(self, user_id: int, guild_id: int, build_type: str) -> bool:
         """Update player's build type"""
         try:
@@ -359,6 +374,111 @@ class Database:
         except Exception as e:
             logger.error(f"Error getting war participants: {e}")
             return []
+    
+    def get_war_participants_by_type(self, guild_id: int, poll_week: str = None) -> Dict:
+        """Get war participants grouped by participation type"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor(cursor_factory=RealDictCursor)
+                if poll_week:
+                    cursor.execute("""
+                        SELECT * FROM war_participants 
+                        WHERE guild_id = %s AND poll_week = %s
+                    """, (guild_id, poll_week))
+                else:
+                    cursor.execute("""
+                        SELECT * FROM war_participants 
+                        WHERE guild_id = %s
+                    """, (guild_id,))
+                rows = [dict(row) for row in cursor.fetchall()]
+                result = {"saturday": [], "sunday": [], "both": [], "not_playing": []}
+                for row in rows:
+                    ptype = row.get("participation_type", "not_playing")
+                    if ptype in result:
+                        result[ptype].append(row)
+                return result
+        except Exception as e:
+            logger.error(f"Error getting war participants by type: {e}")
+            return {"saturday": [], "sunday": [], "both": [], "not_playing": []}
+    
+    def set_war_participation(self, user_id: int, guild_id: int, poll_week: str, participation_type: str) -> bool:
+        """Set a user's war participation choice"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO war_participants (user_id, guild_id, poll_week, participation_type)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (user_id, guild_id, poll_week) DO UPDATE SET
+                        participation_type = EXCLUDED.participation_type,
+                        timestamp = CURRENT_TIMESTAMP
+                """, (user_id, guild_id, poll_week, participation_type))
+            return True
+        except Exception as e:
+            logger.error(f"Error setting war participation: {e}")
+            return False
+    
+    def clear_war_participants(self, guild_id: int, poll_week: str) -> bool:
+        """Clear war participants for a specific poll week"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    DELETE FROM war_participants 
+                    WHERE guild_id = %s AND poll_week = %s
+                """, (guild_id, poll_week))
+            return True
+        except Exception as e:
+            logger.error(f"Error clearing war participants: {e}")
+            return False
+    
+    def clear_all_war_participants(self, guild_id: int) -> bool:
+        """Clear all war participants for a guild"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    DELETE FROM war_participants WHERE guild_id = %s
+                """, (guild_id,))
+            return True
+        except Exception as e:
+            logger.error(f"Error clearing all war participants: {e}")
+            return False
+    
+    def was_event_sent(self, guild_id: int, event_type: str, poll_week: str, day: str = None) -> bool:
+        """Check if an event notification was already sent"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                if day:
+                    cursor.execute("""
+                        SELECT 1 FROM sent_events 
+                        WHERE guild_id = %s AND event_type = %s AND poll_week = %s AND day = %s
+                    """, (guild_id, event_type, poll_week, day))
+                else:
+                    cursor.execute("""
+                        SELECT 1 FROM sent_events 
+                        WHERE guild_id = %s AND event_type = %s AND poll_week = %s
+                    """, (guild_id, event_type, poll_week))
+                return cursor.fetchone() is not None
+        except Exception as e:
+            logger.error(f"Error checking event sent: {e}")
+            return False
+    
+    def mark_event_sent(self, guild_id: int, event_type: str, poll_week: str, day: str = None) -> bool:
+        """Mark an event notification as sent"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO sent_events (guild_id, event_type, poll_week, day)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT DO NOTHING
+                """, (guild_id, event_type, poll_week, day))
+            return True
+        except Exception as e:
+            logger.error(f"Error marking event sent: {e}")
+            return False
     
     def reset_war_data(self, guild_id: int) -> bool:
         """Reset all war participation data for a guild"""
@@ -507,6 +627,10 @@ class Database:
     
     # ==================== JOIN REQUEST OPERATIONS ====================
     
+    def set_min_power_requirement(self, guild_id: int, power: int) -> bool:
+        """Set the minimum power requirement for joining"""
+        return self.update_join_settings(guild_id, min_power_requirement=power)
+    
     def create_join_request(self, user_id: int, guild_id: int, language: str, 
                            in_game_name: str, level: int, power: int) -> Optional[int]:
         """Create a new join request"""
@@ -601,6 +725,55 @@ class Database:
         except Exception as e:
             logger.error(f"Error getting join settings: {e}")
             return None
+    
+    def update_join_settings(self, guild_id: int, join_channel_id: int = None, 
+                            admin_review_channel_id: int = None, build_setup_channel_id: int = None,
+                            min_power_requirement: int = None) -> bool:
+        """Update join system settings for a guild"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                # Check if settings exist
+                cursor.execute("""
+                    SELECT 1 FROM server_join_settings WHERE guild_id = %s
+                """, (guild_id,))
+                exists = cursor.fetchone() is not None
+                
+                if exists:
+                    # Update existing settings
+                    updates = []
+                    params = []
+                    if join_channel_id is not None:
+                        updates.append("join_channel_id = %s")
+                        params.append(join_channel_id)
+                    if admin_review_channel_id is not None:
+                        updates.append("admin_review_channel_id = %s")
+                        params.append(admin_review_channel_id)
+                    if build_setup_channel_id is not None:
+                        updates.append("build_setup_channel_id = %s")
+                        params.append(build_setup_channel_id)
+                    if min_power_requirement is not None:
+                        updates.append("min_power_requirement = %s")
+                        params.append(min_power_requirement)
+                    
+                    if updates:
+                        params.append(guild_id)
+                        cursor.execute(f"""
+                            UPDATE server_join_settings 
+                            SET {', '.join(updates)}
+                            WHERE guild_id = %s
+                        """, params)
+                else:
+                    # Insert new settings
+                    cursor.execute("""
+                        INSERT INTO server_join_settings 
+                        (guild_id, join_channel_id, admin_review_channel_id, build_setup_channel_id, min_power_requirement)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """, (guild_id, join_channel_id, admin_review_channel_id, build_setup_channel_id, min_power_requirement or 0))
+            return True
+        except Exception as e:
+            logger.error(f"Error updating join settings: {e}")
+            return False
     
     def set_welcome_message_id(self, guild_id: int, message_id: int) -> bool:
         """Set the welcome message ID for a guild"""
