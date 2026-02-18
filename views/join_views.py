@@ -351,7 +351,7 @@ class AdminApprovalView(ui.View):
             
             # Get the join settings to find the build setup channel
             settings = self.db.get_join_settings(self.guild_id)
-            # Use join_channel_id as the build setup channel (where the /setupprofile button is posted)
+            build_setup_channel_id = settings.get('build_setup_channel_id') if settings else None
             join_channel_id = settings.get('join_channel_id') if settings else None
             
             # Send DM to user directing them to build setup
@@ -361,8 +361,8 @@ class AdminApprovalView(ui.View):
             if member:
                 approval_msg = get_text(self.db, self.LANGUAGES, self.guild_id, "join_approved", self.user_id)
                 
-                # Get the build setup channel (join channel is where the setup button is)
-                channel_id = join_channel_id
+                # Use build_setup_channel if set, otherwise fall back to join channel
+                channel_id = build_setup_channel_id or join_channel_id
                 if channel_id:
                     channel = guild.get_channel(channel_id)
                     if channel:

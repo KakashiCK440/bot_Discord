@@ -167,10 +167,20 @@ class Database:
                 guild_id BIGINT PRIMARY KEY,
                 join_channel_id BIGINT NOT NULL,
                 approval_channel_id BIGINT NOT NULL,
+                build_setup_channel_id BIGINT,
                 min_power_requirement INTEGER DEFAULT 0,
                 welcome_message_id BIGINT
             )
         """)
+        
+        # Migration: add build_setup_channel_id if it doesn't exist yet
+        try:
+            cursor.execute("""
+                ALTER TABLE server_join_settings 
+                ADD COLUMN IF NOT EXISTS build_setup_channel_id BIGINT
+            """)
+        except Exception:
+            pass
         
         # Sent events tracking
         cursor.execute("""
@@ -746,6 +756,9 @@ class Database:
                     if admin_review_channel_id is not None:
                         updates.append("approval_channel_id = %s")
                         params.append(admin_review_channel_id)
+                    if build_setup_channel_id is not None:
+                        updates.append("build_setup_channel_id = %s")
+                        params.append(build_setup_channel_id)
                     if min_power_requirement is not None:
                         updates.append("min_power_requirement = %s")
                         params.append(min_power_requirement)
@@ -761,9 +774,9 @@ class Database:
                     # Insert new settings using actual column names
                     cursor.execute("""
                         INSERT INTO server_join_settings 
-                        (guild_id, join_channel_id, approval_channel_id, min_power_requirement)
-                        VALUES (%s, %s, %s, %s)
-                    """, (guild_id, join_channel_id, admin_review_channel_id or join_channel_id, min_power_requirement or 0))
+                        (guild_id, join_channel_id, approval_channel_id, build_setup_channel_id, min_power_requirement)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """, (guild_id, join_channel_id, admin_review_channel_id or join_channel_id, build_setup_channel_id, min_power_requirement or 0))
             return True
         except Exception as e:
             logger.error(f"Error updating join settings: {e}")
