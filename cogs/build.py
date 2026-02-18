@@ -80,12 +80,13 @@ class BuildCog(commands.Cog):
         """Show user's current build"""
         guild_id = interaction.guild_id
         user_id = interaction.user.id
+        await interaction.response.defer(ephemeral=True)
         
         # Get player from database
         player = self.db.get_player(user_id, guild_id)
         
         if not player:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 get_text(self.db, LANGUAGES, guild_id, "no_profile", user_id),
                 ephemeral=True
             )
@@ -115,19 +116,20 @@ class BuildCog(commands.Cog):
                 inline=False
             )
         
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
     
     @app_commands.command(name="resetbuild", description="Reset and change your build")
     async def resetbuild(self, interaction: discord.Interaction):
         """Reset user's build"""
         guild_id = interaction.guild_id
         user_id = interaction.user.id
+        await interaction.response.defer(ephemeral=True)
         
         # Get current build
         player = self.db.get_player(user_id, guild_id)
         
         if not player:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ You don't have a build to reset!",
                 ephemeral=True
             )
@@ -146,7 +148,7 @@ class BuildCog(commands.Cog):
         # Show build selection
         build_view = BuildSelectView(self.db, LANGUAGES)
         
-        await interaction.response.send_message(
+        await interaction.followup.send(
             get_text(self.db, LANGUAGES, guild_id, "build_reset", user_id) + "\n\n" + get_text(self.db, LANGUAGES, guild_id, "now_select_build", user_id),
             view=build_view,
             ephemeral=True

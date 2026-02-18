@@ -135,11 +135,12 @@ class ProfileCog(commands.Cog):
         viewer_id = interaction.user.id
         target_user = user or interaction.user
         target_id = target_user.id
+        await interaction.response.defer()
         
         player = self.db.get_player(target_id, guild_id)
         
         if not player:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 get_text(self.db, LANGUAGES, guild_id, "no_profile", viewer_id),
                 ephemeral=True
             )
@@ -202,7 +203,7 @@ class ProfileCog(commands.Cog):
             inline=False
         )
         
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
     
     @app_commands.command(name="updatestats", description="Update your mastery points or level")
     @app_commands.describe(
@@ -218,25 +219,26 @@ class ProfileCog(commands.Cog):
         """Update player stats"""
         guild_id = interaction.guild_id
         user_id = interaction.user.id
+        await interaction.response.defer(ephemeral=True)
         
         player = self.db.get_player(user_id, guild_id)
         
         if not player:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 get_text(self.db, LANGUAGES, guild_id, "no_profile", user_id),
                 ephemeral=True
             )
             return
         
         if level is not None and (level < 1 or level > 100):
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 get_text(self.db, LANGUAGES, guild_id, "err_level_range", user_id),
                 ephemeral=True
             )
             return
         
         if mastery_points is not None and mastery_points < 0:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 get_text(self.db, LANGUAGES, guild_id, "err_mastery_positive", user_id),
                 ephemeral=True
             )
@@ -268,7 +270,7 @@ class ProfileCog(commands.Cog):
             color=discord.Color.green()
         )
         
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed, ephemeral=True)
     
     @app_commands.command(name="changename", description="Change your in-game name and server nickname")
     @app_commands.describe(new_name="Your new in-game name")
@@ -276,11 +278,12 @@ class ProfileCog(commands.Cog):
         """Change player's in-game name"""
         guild_id = interaction.guild_id
         user_id = interaction.user.id
+        await interaction.response.defer()
         
         player = self.db.get_player(user_id, guild_id)
         
         if not player:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 get_text(self.db, LANGUAGES, guild_id, "no_profile", user_id),
                 ephemeral=True
             )
@@ -309,7 +312,7 @@ class ProfileCog(commands.Cog):
         else:
             embed.set_footer(text=nickname_msg)
         
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
     
     @app_commands.command(name="mylanguage", description="Set or view your preferred language (English/Arabic)")
     @app_commands.describe(language="Language to set (optional)")
