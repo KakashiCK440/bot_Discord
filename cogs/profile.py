@@ -408,6 +408,7 @@ class ProfileCog(commands.Cog):
         """View server leaderboard"""
         guild_id = interaction.guild_id
         user_id = interaction.user.id
+        await interaction.response.defer()
         
         sort_by = type.value if type else "mastery"
         limit = max(1, min(limit, 25))  # Clamp between 1 and 25
@@ -415,7 +416,7 @@ class ProfileCog(commands.Cog):
         all_players = self.db.get_all_players(guild_id)
         
         if not all_players:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 get_text(self.db, LANGUAGES, guild_id, "no_players_leaderboard", user_id),
                 ephemeral=True
             )
@@ -447,7 +448,7 @@ class ProfileCog(commands.Cog):
             color=discord.Color.gold()
         )
         
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
 
 async def setup(bot):
