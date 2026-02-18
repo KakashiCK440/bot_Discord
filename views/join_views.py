@@ -201,7 +201,7 @@ class JoinRequestModal(ui.Modal):
                 return
             
             min_power = settings["min_power_requirement"]
-            admin_channel_id = settings["admin_review_channel_id"]
+            admin_channel_id = settings["approval_channel_id"]
             
             # Check power requirement
             if power < min_power:
