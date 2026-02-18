@@ -628,16 +628,17 @@ class Database:
         return self.update_join_settings(guild_id, min_power_requirement=power)
     
     def create_join_request(self, user_id: int, guild_id: int, language: str, 
-                           in_game_name: str, level: int, power: int) -> Optional[int]:
+                           in_game_name: str, level: int, power: int,
+                           admin_message_id: int = None) -> Optional[int]:
         """Create a new join request"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    INSERT INTO join_requests (user_id, guild_id, language, in_game_name, level, power)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                    INSERT INTO join_requests (user_id, guild_id, language, in_game_name, level, power, admin_message_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
-                """, (user_id, guild_id, language, in_game_name, level, power))
+                """, (user_id, guild_id, language, in_game_name, level, power, admin_message_id))
                 return cursor.fetchone()[0]
         except Exception as e:
             logger.error(f"Error creating join request: {e}")

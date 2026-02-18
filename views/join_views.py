@@ -295,7 +295,7 @@ class AdminApprovalView(ui.View):
                     cursor.execute("""
                         SELECT in_game_name, level, power 
                         FROM join_requests 
-                        WHERE id = ?
+                        WHERE id = %s
                     """, (self.request_id,))
                     request_data = cursor.fetchone()
                 
@@ -350,7 +350,7 @@ class AdminApprovalView(ui.View):
             
             # Get the join settings to find the build setup channel
             settings = self.db.get_join_settings(self.guild_id)
-            build_setup_channel_id = settings.get('build_setup_channel_id') if settings else None
+            # Use join_channel_id as the build setup channel (where the /setupprofile button is posted)
             join_channel_id = settings.get('join_channel_id') if settings else None
             
             # Send DM to user directing them to build setup
@@ -360,8 +360,8 @@ class AdminApprovalView(ui.View):
             if member:
                 approval_msg = get_text(self.db, self.LANGUAGES, self.guild_id, "join_approved", self.user_id)
                 
-                # Get the build setup channel (fallback to join channel if not set)
-                channel_id = build_setup_channel_id or join_channel_id
+                # Get the build setup channel (join channel is where the setup button is)
+                channel_id = join_channel_id
                 if channel_id:
                     channel = guild.get_channel(channel_id)
                     if channel:
