@@ -645,6 +645,97 @@ class WarPollView(discord.ui.View):
         
         await interaction.followup.send(message, ephemeral=True)
 
+    # ── /setpollschedule ───────────────────────────────────────────────────────
+    @app_commands.command(
+        name="setpollschedule",
+        description="Set the day and time for the automatic war poll (Admin)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.describe(
+        day="Day the poll is posted each week",
+        hour="Hour to post (0-23, 24-hour format)",
+        minute="Minute to post (0-59)"
+    )
+    @app_commands.choices(day=[
+        app_commands.Choice(name="Monday",    value="Monday"),
+        app_commands.Choice(name="Tuesday",   value="Tuesday"),
+        app_commands.Choice(name="Wednesday", value="Wednesday"),
+        app_commands.Choice(name="Thursday",  value="Thursday"),
+        app_commands.Choice(name="Friday",    value="Friday"),
+        app_commands.Choice(name="Saturday",  value="Saturday"),
+        app_commands.Choice(name="Sunday",    value="Sunday"),
+    ])
+    async def setpollschedule(
+        self,
+        interaction: discord.Interaction,
+        day: app_commands.Choice[str] = None,
+        hour: int = None,
+        minute: int = None
+    ):
+        """Set or view the automatic war poll schedule"""
+        guild_id = interaction.guild_id
+        uid = interaction.user.id
+        await interaction.response.defer(ephemeral=True)
+
+        # If nothing provided, show current schedule
+        if day is None and hour is None and minute is None:
+            config = await self.db.async_run(get_war_config, self.db, guild_id)
+            current_day = config.get("poll_day", "Friday")
+            current_hour = config["poll_time"]["hour"]
+            current_minute = config["poll_time"]["minute"]
+            tz = config.get("timezone", "Africa/Cairo")
+
+            embed = discord.Embed(
+                title="📅 War Poll Schedule",
+                description=(
+                    f"**Day:** {current_day}\n"
+                    f"**Time:** {current_hour:02d}:{current_minute:02d} ({tz})\n\n"
+                    f"Use `/setpollschedule day hour minute` to change it."
+                ),
+                color=discord.Color.blue()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+
+        # Validate inputs
+        if hour is not None and not (0 <= hour <= 23):
+            await interaction.followup.send("❌ Hour must be between 0 and 23.", ephemeral=True)
+            return
+        if minute is not None and not (0 <= minute <= 59):
+            await interaction.followup.send("❌ Minute must be between 0 and 59.", ephemeral=True)
+            return
+
+        # Apply changes
+        changes = []
+        if day is not None:
+            await self.db.async_run(update_war_setting, self.db, guild_id, "poll_day", day.value)
+            changes.append(f"**Day:** {day.value}")
+        if hour is not None:
+            await self.db.async_run(update_war_setting, self.db, guild_id, "poll_time_hour", hour)
+            changes.append(f"**Hour:** {hour:02d}")
+        if minute is not None:
+            await self.db.async_run(update_war_setting, self.db, guild_id, "poll_time_minute", minute)
+            changes.append(f"**Minute:** {minute:02d}")
+
+        config = await self.db.async_run(get_war_config, self.db, guild_id)
+        new_day    = config.get("poll_day", "Friday")
+        new_hour   = config["poll_time"]["hour"]
+        new_minute = config["poll_time"]["minute"]
+        tz         = config.get("timezone", "Africa/Cairo")
+
+        embed = discord.Embed(
+            title="✅ Poll Schedule Updated",
+            description="\n".join(changes),
+            color=discord.Color.green()
+        )
+        embed.add_field(
+            name="📋 New Schedule",
+            value=f"Every **{new_day}** at **{new_hour:02d}:{new_minute:02d}** ({tz})",
+            inline=False
+        )
+        embed.set_footer(text="The poll will be posted automatically at this time each week.")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
 
 async def setup(bot):
     """Setup function to add cog to bot"""
