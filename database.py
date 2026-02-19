@@ -154,7 +154,7 @@ class Database:
                 guild_id BIGINT PRIMARY KEY,
                 language TEXT DEFAULT 'ar',
                 war_channel_id BIGINT,
-                poll_day INTEGER DEFAULT 4,
+                poll_day TEXT DEFAULT 'Friday',
                 poll_time_hour INTEGER DEFAULT 20,
                 poll_time_minute INTEGER DEFAULT 0,
                 saturday_war_hour INTEGER DEFAULT 20,
@@ -186,6 +186,26 @@ class Database:
             """)
         except Exception:
             pass
+        
+        # Migration: convert poll_day from INTEGER to TEXT if it's still an integer column
+        try:
+            cursor.execute("""
+                ALTER TABLE server_settings 
+                ALTER COLUMN poll_day TYPE TEXT USING (
+                    CASE poll_day::text
+                        WHEN '0' THEN 'Monday'
+                        WHEN '1' THEN 'Tuesday'
+                        WHEN '2' THEN 'Wednesday'
+                        WHEN '3' THEN 'Thursday'
+                        WHEN '4' THEN 'Friday'
+                        WHEN '5' THEN 'Saturday'
+                        WHEN '6' THEN 'Sunday'
+                        ELSE poll_day::text
+                    END
+                )
+            """)
+        except Exception:
+            pass  # Already TEXT type, no migration needed
         
         # Sent events tracking
         cursor.execute("""
