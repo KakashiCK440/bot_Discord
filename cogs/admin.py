@@ -81,15 +81,22 @@ class AdminCog(commands.Cog):
     @app_commands.command(name="synccommands", description="Force sync slash commands (Admin)")
     @app_commands.checks.has_permissions(administrator=True)
     async def synccommands(self, interaction: discord.Interaction):
-        """Force sync slash commands"""
+        """Force sync slash commands — guild sync is instant, global sync propagates over time"""
         guild_id = interaction.guild_id
         user_id = interaction.user.id
         
         await interaction.response.defer(ephemeral=True)
-        await self.bot.tree.sync()
+        
+        # Guild sync: copies global commands to this guild immediately (instant)
+        self.bot.tree.copy_global_to(guild=interaction.guild)
+        guild_synced = await self.bot.tree.sync(guild=interaction.guild)
+        
+        # Global sync: registers commands globally (takes up to 1 hour to propagate)
+        global_synced = await self.bot.tree.sync()
         
         await interaction.followup.send(
-            get_text(self.db, LANGUAGES, guild_id, "commands_synced", user_id),
+            f"✅ Synced **{len(guild_synced)}** commands to this server instantly.\n"
+            f"🌐 Synced **{len(global_synced)}** global commands (may take up to 1 hour to appear everywhere).",
             ephemeral=True
         )
 
@@ -153,7 +160,7 @@ class AdminCog(commands.Cog):
             players = []
             with self.db.get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute("SELECT user_id FROM players WHERE guild_id = ?", (guild_id,))
+                cursor.execute("SELECT user_id FROM players WHERE guild_id = %s", (guild_id,))
                 players = [row[0] for row in cursor.fetchall()]
             
             # Remove roles from each player
@@ -171,22 +178,20 @@ class AdminCog(commands.Cog):
                 cursor = conn.cursor()
                 
                 # Delete all related data
-                cursor.execute("DELETE FROM player_weapons WHERE guild_id = ?", (guild_id,))
+                cursor.execute("DELETE FROM player_weapons WHERE guild_id = %s", (guild_id,))
                 weapons_count = cursor.rowcount
                 
-                cursor.execute("DELETE FROM war_participants WHERE guild_id = ?", (guild_id,))
+                cursor.execute("DELETE FROM war_participants WHERE guild_id = %s", (guild_id,))
                 war_count = cursor.rowcount
                 
-                cursor.execute("DELETE FROM user_language WHERE guild_id = ?", (guild_id,))
+                cursor.execute("DELETE FROM user_language WHERE guild_id = %s", (guild_id,))
                 lang_count = cursor.rowcount
                 
-                cursor.execute("DELETE FROM join_requests WHERE guild_id = ?", (guild_id,))
+                cursor.execute("DELETE FROM join_requests WHERE guild_id = %s", (guild_id,))
                 join_count = cursor.rowcount
                 
-                cursor.execute("DELETE FROM players WHERE guild_id = ?", (guild_id,))
+                cursor.execute("DELETE FROM players WHERE guild_id = %s", (guild_id,))
                 player_count = cursor.rowcount
-                
-                conn.commit()
             
             await interaction.followup.send(
                 f"✅ **All data deleted successfully!**\n\n"
