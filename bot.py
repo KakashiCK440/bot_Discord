@@ -108,10 +108,17 @@ async def on_ready():
     # Re-register persistent views
     await register_persistent_views()
     
-    # Sync commands
+    # Sync commands — guild sync first (instant), then global
     try:
+        # Step 1: copy global commands to every guild immediately
+        for guild in bot.guilds:
+            bot.tree.copy_global_to(guild=guild)
+            await bot.tree.sync(guild=guild)
+        logger.info(f"✅ Guild-synced commands to {len(bot.guilds)} guild(s) instantly")
+
+        # Step 2: global sync in background (propagates over ~1 hour)
         synced = await bot.tree.sync()
-        logger.info(f"✅ Synced {len(synced)} command(s)")
+        logger.info(f"✅ Global sync: {len(synced)} command(s)")
     except Exception as e:
         logger.error(f"❌ Failed to sync commands: {e}")
     
