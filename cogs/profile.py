@@ -7,7 +7,7 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 from config import BUILDS, BUILD_ICONS, WEAPON_ICONS
-from utils.helpers import get_text, update_member_nickname
+from utils.helpers import get_text, update_member_nickname, invalidate_lang_cache
 from locales import LANGUAGES
 from views.profile_views import LanguageSelectView
 
@@ -77,7 +77,7 @@ class ProfileCog(commands.Cog):
             )
             return
         
-        player = self.db.get_player(user_id, guild_id)
+        player = await self.db.async_run(self.db.get_player, user_id, guild_id)
         build_type = player.get('build_type', 'DPS') if player else 'DPS'
         
         self.db.create_or_update_player(
@@ -137,7 +137,7 @@ class ProfileCog(commands.Cog):
         target_id = target_user.id
         await interaction.response.defer()
         
-        player = self.db.get_player(target_id, guild_id)
+        player = await self.db.async_run(self.db.get_player, target_id, guild_id)
         
         if not player:
             await interaction.followup.send(
@@ -221,7 +221,7 @@ class ProfileCog(commands.Cog):
         user_id = interaction.user.id
         await interaction.response.defer(ephemeral=True)
         
-        player = self.db.get_player(user_id, guild_id)
+        player = await self.db.async_run(self.db.get_player, user_id, guild_id)
         
         if not player:
             await interaction.followup.send(
@@ -280,7 +280,7 @@ class ProfileCog(commands.Cog):
         user_id = interaction.user.id
         await interaction.response.defer()
         
-        player = self.db.get_player(user_id, guild_id)
+        player = await self.db.async_run(self.db.get_player, user_id, guild_id)
         
         if not player:
             await interaction.followup.send(
@@ -328,6 +328,8 @@ class ProfileCog(commands.Cog):
         if language:
             # Set language
             self.db.set_user_language(user_id, guild_id, language.value)
+            # Invalidate cache so new language applies immediately
+            invalidate_lang_cache(user_id, guild_id)
             await interaction.response.send_message(
                 get_text(self.db, LANGUAGES, guild_id, "mylanguage_set", user_id).format(lang=language.name),
                 ephemeral=True

@@ -173,57 +173,110 @@ async def on_guild_remove(guild):
 
 # ==================== BACKGROUND TASKS ====================
 
+async def post_war_poll_to_channel(channel: discord.TextChannel, guild_id: int, config: dict):
+    """Build and send the war poll embed + buttons to the given channel."""
+    from cogs.war import WarPollView
+    from utils.helpers import get_discord_timestamp
+    from locales import LANGUAGES
+
+    guild_timezone = config.get("timezone", "Africa/Cairo")
+    import pytz
+    now = datetime.now(pytz.timezone(guild_timezone))
+    current_weekday = now.weekday()
+
+    # Days until next Saturday (5)
+    days_to_saturday = (5 - current_weekday) % 7 or 7 if current_weekday != 5 else 0
+    days_to_sunday = (6 - current_weekday) % 7 or 7 if current_weekday != 6 else 0
+
+    saturday_time = get_discord_timestamp(
+        config["saturday_war"]["hour"],
+        config["saturday_war"]["minute"],
+        days_to_saturday,
+        guild_timezone
+    )
+    sunday_time = get_discord_timestamp(
+        config["sunday_war"]["hour"],
+        config["sunday_war"]["minute"],
+        days_to_sunday,
+        guild_timezone
+    )
+
+    # Build embed using English as default for auto-posts
+    # (guild language will apply for buttons via get_text per user)
+    lang = db.get_server_settings(guild_id).get('language', 'en')
+    L = LANGUAGES.get(lang, LANGUAGES['en'])
+
+    embed = discord.Embed(
+        title=L.get("war_poll_title", "⚔️ War Poll"),
+        description=L.get("war_poll_desc", "Vote for which day(s) you'll participate in war!"),
+        color=discord.Color.red()
+    )
+    embed.add_field(
+        name=f"📅 {L.get('saturday', 'Saturday')}",
+        value=f"⏰ {saturday_time}",
+        inline=True
+    )
+    embed.add_field(
+        name=f"📅 {L.get('sunday', 'Sunday')}",
+        value=f"⏰ {sunday_time}",
+        inline=True
+    )
+    embed.add_field(
+        name="ℹ️",
+        value=L.get("use_warlist", "Use /warlist to see who signed up"),
+        inline=False
+    )
+    embed.set_footer(text=L.get("times_local", "Times shown in your local timezone"))
+
+    view = WarPollView(guild_id, db)
+    await channel.send(embed=embed, view=view)
+
+
 @tasks.loop(minutes=WAR_POLL_CHECK_INTERVAL)
 async def check_war_poll_schedule():
     """Check if it's time to post war polls"""
     try:
         now_utc = datetime.now(pytz.UTC)
-        
+
         for guild in bot.guilds:
             try:
                 config = get_war_config(db, guild.id)
                 channel_id = config.get("war_channel_id")
-                
+
                 if not channel_id:
                     continue
-                
+
                 # Get guild timezone
                 tz = pytz.timezone(config.get("timezone", "Africa/Cairo"))
                 now_local = now_utc.astimezone(tz)
-                
+
                 # Check if it's poll day and time
                 poll_day = config.get("poll_day", "Friday")
                 poll_hour = config["poll_time"]["hour"]
                 poll_minute = config["poll_time"]["minute"]
-                
+
                 # Map day names to weekday numbers
                 day_map = {
                     "Monday": 0, "Tuesday": 1, "Wednesday": 2, "Thursday": 3,
                     "Friday": 4, "Saturday": 5, "Sunday": 6
                 }
-                
-                if now_local.weekday() == day_map.get(poll_day, 4):  # Default to Friday
+
+                if now_local.weekday() == day_map.get(poll_day, 4):
                     if now_local.hour == poll_hour and now_local.minute == poll_minute:
-                        # Check if poll already sent this week
                         poll_week = get_current_poll_week()
                         if not db.was_event_sent(guild.id, "war_poll", poll_week):
-                            # Post poll
                             channel = guild.get_channel(channel_id)
                             if channel:
-                                # Import here to avoid circular imports
-                                from cogs.war import WarCog
-                                war_cog = bot.get_cog("WarCog")
-                                if war_cog:
-                                    # Create a mock interaction for posting
-                                    # Note: This is simplified; in production, you'd post directly
-                                    logger.info(f"📅 Time to post war poll for {guild.name}")
-                                    db.mark_event_sent(guild.id, "war_poll", poll_week)
-            
+                                logger.info(f"📅 Auto-posting war poll for {guild.name}")
+                                await post_war_poll_to_channel(channel, guild.id, config)
+                                db.mark_event_sent(guild.id, "war_poll", poll_week)
+
             except Exception as e:
                 logger.error(f"Error checking war poll for guild {guild.id}: {e}")
-    
+
     except Exception as e:
         logger.error(f"Error in war poll scheduler: {e}")
+
 
 
 @tasks.loop(minutes=WAR_REMINDER_CHECK_INTERVAL)

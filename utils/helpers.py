@@ -7,8 +7,43 @@ import discord
 import pytz
 from datetime import datetime, timedelta
 import logging
+import time
 
 logger = logging.getLogger(__name__)
+
+# ── Language cache ────────────────────────────────────────────────────────────
+# Keyed by (user_id, guild_id) → (lang, timestamp)
+# Each entry is valid for 60 seconds, avoiding repeated DB hits per get_text call.
+_lang_cache: dict = {}
+_LANG_CACHE_TTL = 60  # seconds
+
+
+def _get_cached_lang(db, guild_id: int, user_id: int | None) -> str:
+    """Return the resolved language for this user/guild, using a 60-second cache."""
+    now = time.monotonic()
+    key = (user_id, guild_id)
+
+    # Cache hit?
+    if key in _lang_cache:
+        lang, ts = _lang_cache[key]
+        if now - ts < _LANG_CACHE_TTL:
+            return lang
+
+    # Cache miss — resolve from DB
+    if user_id and db.has_user_chosen_language(user_id, guild_id):
+        lang = db.get_user_language(user_id, guild_id)
+    else:
+        settings = db.get_server_settings(guild_id)
+        lang = settings.get('language', 'en') if settings else 'en'
+
+    _lang_cache[key] = (lang, now)
+    return lang
+
+
+def invalidate_lang_cache(user_id: int, guild_id: int):
+    """Call this after /mylanguage changes so the new setting takes effect immediately."""
+    _lang_cache.pop((user_id, guild_id), None)
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 def get_language(db, guild_id: int) -> str:
@@ -26,39 +61,26 @@ def get_user_language(db, user_id: int, guild_id: int) -> str:
 
 def get_text(db, LANGUAGES: dict, guild_id: int, key: str, user_id: int = None, _cache: dict = None) -> str:
     """
-    Get translated text. If user_id is given: use that user's choice if they set one, 
-    else server default. Else use server language.
-    
+    Get translated text. Uses a 60-second in-process cache so repeated calls
+    within the same request do NOT hit the database every time.
+
     Args:
         db: Database instance
         LANGUAGES: Language dictionary
         guild_id: Guild ID
         key: Translation key
         user_id: Optional user ID for user-specific language
-        _cache: Optional cache dict for request-level caching (pass {} to enable)
-    
+        _cache: Legacy per-request cache dict (still supported but no longer needed)
+
     Returns:
         Translated text string
     """
     if guild_id is None:
         return LANGUAGES['en'].get(key, key)
-    
-    # Use cache if provided
-    cache_key = f"{guild_id}_{user_id}"
-    if _cache is not None and cache_key in _cache:
-        lang = _cache[cache_key]
-    else:
-        # Determine language
-        if user_id and db.has_user_chosen_language(user_id, guild_id):
-            lang = db.get_user_language(user_id, guild_id)
-        else:
-            lang = get_language(db, guild_id)
-        
-        # Store in cache if provided
-        if _cache is not None:
-            _cache[cache_key] = lang
-    
+
+    lang = _get_cached_lang(db, guild_id, user_id)
     return LANGUAGES.get(lang, LANGUAGES['en']).get(key, key)
+
 
 
 async def update_member_nickname(member: discord.Member, new_name: str) -> tuple[bool, str]:

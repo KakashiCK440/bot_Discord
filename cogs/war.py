@@ -34,7 +34,7 @@ class WarCog(commands.Cog):
         guild_id = interaction.guild_id
         uid = interaction.user.id
         await interaction.response.defer(ephemeral=True)
-        config = get_war_config(self.db, guild_id)
+        config = await self.db.async_run(get_war_config, self.db, guild_id)
         
         channel_id = config.get("war_channel_id")
         if not channel_id:
@@ -135,13 +135,13 @@ class WarCog(commands.Cog):
         user_id = interaction.user.id
         await interaction.response.defer()
         
-        participants = get_war_participants(self.db, guild_id)
+        participants = await self.db.async_run(get_war_participants, self.db, guild_id)
         
         saturday_players = participants["saturday_players"] | participants["both_days_players"]
         sunday_players = participants["sunday_players"] | participants["both_days_players"]
         
         # Get war times
-        config = get_war_config(self.db, guild_id)
+        config = await self.db.async_run(get_war_config, self.db, guild_id)
         guild_timezone = config.get("timezone", "Africa/Cairo")
         
         # Helper function to get player details organized by build
@@ -575,7 +575,7 @@ class WarPollView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
         
         # Check if user has a profile first
-        player = self.db.get_player(user_id, guild_id)
+        player = await self.db.async_run(self.db.get_player, user_id, guild_id)
         if not player:
             await interaction.followup.send(
                 get_text(self.db, LANGUAGES, guild_id, "err_no_profile_war", user_id),
@@ -588,7 +588,7 @@ class WarPollView(discord.ui.View):
         poll_week = get_current_poll_week()
         
         # Get user's previous vote (if any)
-        participants_by_type = self.db.get_war_participants_by_type(guild_id, poll_week)
+        participants_by_type = await self.db.async_run(self.db.get_war_participants_by_type, guild_id, poll_week)
         previous_choice = None
         for participation_type, player_list in participants_by_type.items():
             for p in player_list:
