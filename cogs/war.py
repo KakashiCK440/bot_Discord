@@ -145,13 +145,11 @@ class WarCog(commands.Cog):
         config = await self.db.async_run(get_war_config, self.db, guild_id)
         guild_timezone = config.get("timezone", "Africa/Cairo")
         
-        # Helper function to get player details organized by build
+        FIELD_LIMIT = 1024 # Discord embed field value limit
+
         def get_player_details_by_build(player_ids):
-            if not player_ids:
-                return None, {}
-            
-            builds = {"DPS": [], "Tank": [], "Healer": [], "Unknown": []}
-            
+            """Organizes player details by build type."""
+            build_data = {"DPS": [], "Tank": [], "Healer": [], "Unknown": []}
             for pid in player_ids:
                 player = self.db.get_player(pid, guild_id)
                 if player:
@@ -159,114 +157,64 @@ class WarCog(commands.Cog):
                     build = player.get('build_type', 'Unknown')
                     weapons = self.db.get_player_weapons(pid, guild_id)
                     
-                    # Format weapons with icons
                     weapon_str = ""
                     if weapons:
                         weapon_icons = [f"{WEAPON_ICONS.get(w, '⚔️')}" for w in weapons[:2]]
                         weapon_str = " " + "".join(weapon_icons)
                     
-                    builds.get(build, builds["Unknown"]).append(f"{name}{weapon_str}")
+                    build_data.get(build, build_data["Unknown"]).append(f"{name}{weapon_str}")
                 else:
-                    builds["Unknown"].append(f"<@{pid}>")
+                    build_data["Unknown"].append(f"<@{pid}>")
+            return build_data
+
+        def format_build_field(build_type_name, players_list):
+            """Formats a single build type's player list into one or more embed fields."""
+            fields = []
+            if not players_list:
+                return fields # No players for this build type
+
+            icon = BUILD_ICONS.get(build_type_name, "❓")
             
-            # Count by build
-            counts = {
-                "DPS": len(builds["DPS"]),
-                "Tank": len(builds["Tank"]),
-                "Healer": len(builds["Healer"]),
-                "Unknown": len(builds["Unknown"])
-            }
+            # Initial field name for the build type
+            field_name_prefix = f"{icon} {build_type_name}"
             
-            return counts, builds
-        
-        # Helper to format player list — hard-capped at Discord's 1024-char field limit
-        FIELD_LIMIT = 1024
+            current_content = []
+            current_length = 0
+            field_count = 0
 
-        def format_player_list(builds, counts, total):
-            lines = []
+            for player_entry in players_list:
+                line = f"• {player_entry}"
+                # Check if adding this line exceeds the limit
+                # +1 for newline character
+                if current_length + len(line) + 1 > FIELD_LIMIT:
+                    # Current content exceeds limit, create a field
+                    field_name = f"{field_name_prefix} (cont.)" if field_count > 0 else field_name_prefix
+                    fields.append(discord.EmbedField(name=field_name, value="\n".join(current_content), inline=True))
+                    current_content = [line]
+                    current_length = len(line) + 1
+                    field_count += 1
+                else:
+                    current_content.append(line)
+                    current_length += len(line) + 1
+            
+            # Add any remaining content
+            if current_content:
+                field_name = f"{field_name_prefix} (cont.)" if field_count > 0 else field_name_prefix
+                fields.append(discord.EmbedField(name=field_name, value="\n".join(current_content), inline=True))
+            
+            return fields
 
-            # Build summary line (e.g. "⚔ 5 DPS • 🛡 2 Tank")
-            summary_parts = []
-            if counts["DPS"] > 0:
-                summary_parts.append(f"{BUILD_ICONS['DPS']} **{counts['DPS']} DPS**")
-            if counts["Tank"] > 0:
-                summary_parts.append(f"{BUILD_ICONS['Tank']} **{counts['Tank']} Tank**")
-            if counts["Healer"] > 0:
-                summary_parts.append(f"{BUILD_ICONS['Healer']} **{counts['Healer']} Healer**")
-            if summary_parts:
-                lines.append(" • ".join(summary_parts))
-                lines.append("")
-
-            # Iterate builds, adding lines until we approach the character limit
-            max_per_build = 15
-            char_budget = FIELD_LIMIT - 50  # leave 50 chars for the overflow notice
-            current_len = sum(len(l) + 1 for l in lines)  # +1 for newline
-            overflow = 0
-
-            for build_type in ["DPS", "Tank", "Healer", "Unknown"]:
-                if not builds[build_type]:
-                    continue
-                icon = BUILD_ICONS.get(build_type, "❓")
-                header = f"**{icon} {build_type}:**"
-
-                # Always try to fit the header
-                if current_len + len(header) + 1 > char_budget:
-                    overflow += len(builds[build_type])
-                    continue
-
-                lines.append(header)
-                current_len += len(header) + 1
-
-                shown = 0
-                for player in builds[build_type][:max_per_build]:
-                    entry = f"• {player}"
-                    if current_len + len(entry) + 1 > char_budget:
-                        overflow += len(builds[build_type]) - shown
-                        break
-                    lines.append(entry)
-                    current_len += len(entry) + 1
-                    shown += 1
-
-                remaining = len(builds[build_type]) - max_per_build
-                if remaining > 0:
-                    note = f"_... and {remaining} more {build_type}_"
-                    if current_len + len(note) + 1 <= FIELD_LIMIT:
-                        lines.append(note)
-                        current_len += len(note) + 1
-
-                lines.append("")
-                current_len += 1
-
-            result = "\n".join(lines) if lines else get_text(self.db, LANGUAGES, guild_id, "no_players", user_id)
-
-            # Final safety: if still over limit (e.g. from summary alone), hard truncate
-            if len(result) > FIELD_LIMIT:
-                result = result[:FIELD_LIMIT - 20] + "\n_... (truncated)_"
-
-            if overflow > 0:
-                notice = f"\n_+{overflow} more players not shown_"
-                if len(result) + len(notice) <= FIELD_LIMIT:
-                    result += notice
-
-            return result
-        
         # Create embed
         embed = discord.Embed(
             title=get_text(self.db, LANGUAGES, guild_id, "war_list_title", user_id),
             color=discord.Color.orange()
         )
         
+        # Process Saturday players
         if day is None or day.value == "saturday":
-            # Calculate Saturday timestamp
             now = datetime.now(pytz.timezone(guild_timezone))
             current_weekday = now.weekday()
-            if current_weekday < 5:
-                days_to_saturday = 5 - current_weekday
-            elif current_weekday == 5:
-                days_to_saturday = 0
-            else:
-                days_to_saturday = 6
-            
+            days_to_saturday = 5 - current_weekday if current_weekday < 5 else (0 if current_weekday == 5 else 6)
             saturday_time = get_discord_timestamp(
                 config["saturday_war"]["hour"],
                 config["saturday_war"]["minute"],
@@ -274,23 +222,22 @@ class WarCog(commands.Cog):
                 guild_timezone
             )
             
-            counts, builds = get_player_details_by_build(saturday_players)
+            saturday_build_data = get_player_details_by_build(saturday_players)
             
-            if counts:
-                sat_header = f"{get_text(self.db, LANGUAGES, guild_id, 'total_saturday', user_id)}: **{len(saturday_players)}**\n\n"
-                sat_body = format_player_list(builds, counts, len(saturday_players))
-                # Ensure header + body fits in 1024 chars
-                if len(sat_header) + len(sat_body) > FIELD_LIMIT:
-                    sat_body = sat_body[:FIELD_LIMIT - len(sat_header) - 20] + "\n_... (truncated)_"
-                embed.add_field(
-                    name=f"📅 {get_text(self.db, LANGUAGES, guild_id, 'saturday', user_id)} - {saturday_time}",
-                    value=sat_header + sat_body,
-                    inline=False
-                )
+            embed.add_field(
+                name=f"📅 {get_text(self.db, LANGUAGES, guild_id, 'saturday', user_id)} - {saturday_time}",
+                value=f"{get_text(self.db, LANGUAGES, guild_id, 'total_saturday', user_id)}: **{len(saturday_players)}**",
+                inline=False
+            )
+            
+            if saturday_players:
+                for build_type in ["DPS", "Tank", "Healer", "Unknown"]:
+                    for field in format_build_field(build_type, saturday_build_data[build_type]):
+                        embed.add_field(name=field.name, value=field.value, inline=field.inline)
             else:
                 embed.add_field(
-                    name=f"📅 {get_text(self.db, LANGUAGES, guild_id, 'saturday', user_id)} - {saturday_time}",
-                    value=f"{get_text(self.db, LANGUAGES, guild_id, 'total_saturday', user_id)}: **0**\n\n{get_text(self.db, LANGUAGES, guild_id, 'no_players', user_id)}",
+                    name=get_text(self.db, LANGUAGES, guild_id, 'no_players', user_id),
+                    value="\u200b", # Zero width space
                     inline=False
                 )
         
@@ -311,24 +258,22 @@ class WarCog(commands.Cog):
                 days_to_sunday,
                 guild_timezone
             )
-            
-            counts, builds = get_player_details_by_build(sunday_players)
-            
-            if counts:
-                sun_header = f"{get_text(self.db, LANGUAGES, guild_id, 'total_sunday', user_id)}: **{len(sunday_players)}**\n\n"
-                sun_body = format_player_list(builds, counts, len(sunday_players))
-                # Ensure header + body fits in 1024 chars
-                if len(sun_header) + len(sun_body) > FIELD_LIMIT:
-                    sun_body = sun_body[:FIELD_LIMIT - len(sun_header) - 20] + "\n_... (truncated)_"
-                embed.add_field(
-                    name=f"📅 {get_text(self.db, LANGUAGES, guild_id, 'sunday', user_id)} - {sunday_time}",
-                    value=sun_header + sun_body,
-                    inline=False
-                )
+            sunday_build_data = get_player_details_by_build(sunday_players)
+
+            embed.add_field(
+                name=f"📅 {get_text(self.db, LANGUAGES, guild_id, 'sunday', user_id)} - {sunday_time}",
+                value=f"{get_text(self.db, LANGUAGES, guild_id, 'total_sunday', user_id)}: **{len(sunday_players)}**",
+                inline=False
+            )
+
+            if sunday_players:
+                for build_type in ["DPS", "Tank", "Healer", "Unknown"]:
+                    for field in format_build_field(build_type, sunday_build_data[build_type]):
+                        embed.add_field(name=field.name, value=field.value, inline=field.inline)
             else:
                 embed.add_field(
-                    name=f"📅 {get_text(self.db, LANGUAGES, guild_id, 'sunday', user_id)} - {sunday_time}",
-                    value=f"{get_text(self.db, LANGUAGES, guild_id, 'total_sunday', user_id)}: **0**\n\n{get_text(self.db, LANGUAGES, guild_id, 'no_players', user_id)}",
+                    name=get_text(self.db, LANGUAGES, guild_id, 'no_players', user_id),
+                    value="\u200b",
                     inline=False
                 )
         
