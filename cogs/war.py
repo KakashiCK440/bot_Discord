@@ -179,11 +179,13 @@ class WarCog(commands.Cog):
             
             return counts, builds
         
-        # Helper to format player list with pagination
+        # Helper to format player list — hard-capped at Discord's 1024-char field limit
+        FIELD_LIMIT = 1024
+
         def format_player_list(builds, counts, total):
             lines = []
-            
-            # Add build summary
+
+            # Build summary line (e.g. "⚔ 5 DPS • 🛡 2 Tank")
             summary_parts = []
             if counts["DPS"] > 0:
                 summary_parts.append(f"{BUILD_ICONS['DPS']} **{counts['DPS']} DPS**")
@@ -191,31 +193,62 @@ class WarCog(commands.Cog):
                 summary_parts.append(f"{BUILD_ICONS['Tank']} **{counts['Tank']} Tank**")
             if counts["Healer"] > 0:
                 summary_parts.append(f"{BUILD_ICONS['Healer']} **{counts['Healer']} Healer**")
-            
             if summary_parts:
                 lines.append(" • ".join(summary_parts))
-                lines.append("")  # Empty line
-            
-            # Add players by build (limit to prevent embed overflow)
-            max_per_build = 15  # Max players to show per build
-            
+                lines.append("")
+
+            # Iterate builds, adding lines until we approach the character limit
+            max_per_build = 15
+            char_budget = FIELD_LIMIT - 50  # leave 50 chars for the overflow notice
+            current_len = sum(len(l) + 1 for l in lines)  # +1 for newline
+            overflow = 0
+
             for build_type in ["DPS", "Tank", "Healer", "Unknown"]:
-                if builds[build_type]:
-                    icon = BUILD_ICONS.get(build_type, "❓")
-                    lines.append(f"**{icon} {build_type}:**")
-                    
-                    # Show up to max_per_build players
-                    for player in builds[build_type][:max_per_build]:
-                        lines.append(f"• {player}")
-                    
-                    # Show "and X more" if there are more players
-                    remaining = len(builds[build_type]) - max_per_build
-                    if remaining > 0:
-                        lines.append(f"_... and {remaining} more {build_type}_")
-                    
-                    lines.append("")  # Empty line between builds
-            
-            return "\n".join(lines) if lines else get_text(self.db, LANGUAGES, guild_id, "no_players", user_id)
+                if not builds[build_type]:
+                    continue
+                icon = BUILD_ICONS.get(build_type, "❓")
+                header = f"**{icon} {build_type}:**"
+
+                # Always try to fit the header
+                if current_len + len(header) + 1 > char_budget:
+                    overflow += len(builds[build_type])
+                    continue
+
+                lines.append(header)
+                current_len += len(header) + 1
+
+                shown = 0
+                for player in builds[build_type][:max_per_build]:
+                    entry = f"• {player}"
+                    if current_len + len(entry) + 1 > char_budget:
+                        overflow += len(builds[build_type]) - shown
+                        break
+                    lines.append(entry)
+                    current_len += len(entry) + 1
+                    shown += 1
+
+                remaining = len(builds[build_type]) - max_per_build
+                if remaining > 0:
+                    note = f"_... and {remaining} more {build_type}_"
+                    if current_len + len(note) + 1 <= FIELD_LIMIT:
+                        lines.append(note)
+                        current_len += len(note) + 1
+
+                lines.append("")
+                current_len += 1
+
+            result = "\n".join(lines) if lines else get_text(self.db, LANGUAGES, guild_id, "no_players", user_id)
+
+            # Final safety: if still over limit (e.g. from summary alone), hard truncate
+            if len(result) > FIELD_LIMIT:
+                result = result[:FIELD_LIMIT - 20] + "\n_... (truncated)_"
+
+            if overflow > 0:
+                notice = f"\n_+{overflow} more players not shown_"
+                if len(result) + len(notice) <= FIELD_LIMIT:
+                    result += notice
+
+            return result
         
         # Create embed
         embed = discord.Embed(
@@ -244,9 +277,14 @@ class WarCog(commands.Cog):
             counts, builds = get_player_details_by_build(saturday_players)
             
             if counts:
+                sat_header = f"{get_text(self.db, LANGUAGES, guild_id, 'total_saturday', user_id)}: **{len(saturday_players)}**\n\n"
+                sat_body = format_player_list(builds, counts, len(saturday_players))
+                # Ensure header + body fits in 1024 chars
+                if len(sat_header) + len(sat_body) > FIELD_LIMIT:
+                    sat_body = sat_body[:FIELD_LIMIT - len(sat_header) - 20] + "\n_... (truncated)_"
                 embed.add_field(
                     name=f"📅 {get_text(self.db, LANGUAGES, guild_id, 'saturday', user_id)} - {saturday_time}",
-                    value=f"{get_text(self.db, LANGUAGES, guild_id, 'total_saturday', user_id)}: **{len(saturday_players)}**\n\n{format_player_list(builds, counts, len(saturday_players))}",
+                    value=sat_header + sat_body,
                     inline=False
                 )
             else:
@@ -277,9 +315,14 @@ class WarCog(commands.Cog):
             counts, builds = get_player_details_by_build(sunday_players)
             
             if counts:
+                sun_header = f"{get_text(self.db, LANGUAGES, guild_id, 'total_sunday', user_id)}: **{len(sunday_players)}**\n\n"
+                sun_body = format_player_list(builds, counts, len(sunday_players))
+                # Ensure header + body fits in 1024 chars
+                if len(sun_header) + len(sun_body) > FIELD_LIMIT:
+                    sun_body = sun_body[:FIELD_LIMIT - len(sun_header) - 20] + "\n_... (truncated)_"
                 embed.add_field(
                     name=f"📅 {get_text(self.db, LANGUAGES, guild_id, 'sunday', user_id)} - {sunday_time}",
-                    value=f"{get_text(self.db, LANGUAGES, guild_id, 'total_sunday', user_id)}: **{len(sunday_players)}**\n\n{format_player_list(builds, counts, len(sunday_players))}",
+                    value=sun_header + sun_body,
                     inline=False
                 )
             else:
