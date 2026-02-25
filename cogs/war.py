@@ -524,102 +524,93 @@ class WarPollView(discord.ui.View):
         await self._handle_vote(interaction, "none")
     
     async def _handle_vote(self, interaction: discord.Interaction, choice: str):
-        """Handle war poll vote with rate-limit retry logic"""
+        """Handle war poll vote - all DB work in a thread to keep the event loop free"""
         guild_id = interaction.guild_id
         user_id = interaction.user.id
-        
-        # Defer immediately with retry in case of 429 right on the defer itself
+
+        # Defer immediately - must fire within 3 seconds
         for attempt in range(3):
             try:
                 await interaction.response.defer(ephemeral=True)
                 break
             except discord.HTTPException as e:
                 if e.status == 429 and attempt < 2:
-                    retry_after = float(getattr(e, 'retry_after', 5))
-                    await asyncio.sleep(retry_after)
+                    await asyncio.sleep(float(getattr(e, 'retry_after', 5)))
                 else:
-                    # Can't defer - interaction probably already expired or hard failure
-                    return
-        
-        # Check if user has a profile first
-        player = await self.db.async_run(self.db.get_player, user_id, guild_id)
-        if not player:
+                    return  # Interaction expired or hard failure
+
+        # Run ALL DB work in one thread - never block the event loop
+        def do_db_work():
+            from utils.war_helpers import get_current_poll_week
+            # 1. Check profile
+            player = self.db.get_player(user_id, guild_id)
+            if not player:
+                return None, None
+
+            # 2. Get previous vote
+            poll_week = get_current_poll_week()
+            participants_by_type = self.db.get_war_participants_by_type(guild_id, poll_week)
+            previous_choice = None
+            for ptype, plist in participants_by_type.items():
+                for p in plist:
+                    if p.get("user_id") == user_id:
+                        previous_choice = ptype
+                        break
+                if previous_choice:
+                    break
+
+            # 3. Save new vote
+            set_war_participation(self.db, guild_id, user_id, choice)
+            return player, previous_choice
+
+        player, previous_choice = await self.db.async_run(do_db_work)
+
+        if player is None:
             await interaction.followup.send(
                 get_text(self.db, LANGUAGES, guild_id, "err_no_profile_war", user_id),
                 ephemeral=True
             )
             return
-        
-        # Get current poll week
-        from utils.war_helpers import get_current_poll_week
-        poll_week = get_current_poll_week()
-        
-        # Get user's previous vote (if any)
-        participants_by_type = await self.db.async_run(self.db.get_war_participants_by_type, guild_id, poll_week)
-        previous_choice = None
-        for participation_type, player_list in participants_by_type.items():
-            for p in player_list:
-                if p.get("user_id") == user_id:
-                    previous_choice = participation_type
-                    break
-            if previous_choice:
-                break
-        
-        # Set new participation
-        set_war_participation(self.db, guild_id, user_id, choice)
-        
-        # Build feedback message based on previous and new choice
-        if choice == "saturday":
-            new_choice_text = get_text(self.db, LANGUAGES, guild_id, "saturday", user_id)
-        elif choice == "sunday":
-            new_choice_text = get_text(self.db, LANGUAGES, guild_id, "sunday", user_id)
-        elif choice == "both":
-            new_choice_text = get_text(self.db, LANGUAGES, guild_id, "both_days", user_id)
-        else:  # none
-            new_choice_text = get_text(self.db, LANGUAGES, guild_id, "not_playing", user_id)
-        
-        # Format previous choice text
-        prev_choice_text = None
-        if previous_choice:
-            if previous_choice == "saturday":
-                prev_choice_text = get_text(self.db, LANGUAGES, guild_id, "saturday", user_id)
-            elif previous_choice == "sunday":
-                prev_choice_text = get_text(self.db, LANGUAGES, guild_id, "sunday", user_id)
-            elif previous_choice == "both":
-                prev_choice_text = get_text(self.db, LANGUAGES, guild_id, "both_days", user_id)
-            else:  # not_playing
-                prev_choice_text = get_text(self.db, LANGUAGES, guild_id, "not_playing", user_id)
-        
-        # Send confirmation with previous selection if applicable
+
+        # Build confirmation message (pure Python, no DB calls)
+        def choice_label(c):
+            key_map = {"saturday": "saturday", "sunday": "sunday", "both": "both_days", "none": "not_playing"}
+            return get_text(self.db, LANGUAGES, guild_id, key_map.get(c, "not_playing"), user_id)
+
+        new_label  = choice_label(choice)
+        prev_label = choice_label(previous_choice) if previous_choice else None
+
         if previous_choice and previous_choice != choice:
-            # User changed their vote
             if choice == "none":
-                message = f"✅ {get_text(self.db, LANGUAGES, guild_id, 'removed_from_war', user_id)}\n\n**{get_text(self.db, LANGUAGES, guild_id, 'previously', user_id)}:** {prev_choice_text}"
+                message = (
+                    f"✅ {get_text(self.db, LANGUAGES, guild_id, 'removed_from_war', user_id)}\n\n"
+                    f"**{get_text(self.db, LANGUAGES, guild_id, 'previously', user_id)}:** {prev_label}"
+                )
             else:
-                message = f"✅ {get_text(self.db, LANGUAGES, guild_id, 'vote_updated', user_id)}\n\n**{get_text(self.db, LANGUAGES, guild_id, 'previously', user_id)}:** {prev_choice_text} → **{get_text(self.db, LANGUAGES, guild_id, 'now', user_id)}:** {new_choice_text}"
+                message = (
+                    f"✅ {get_text(self.db, LANGUAGES, guild_id, 'vote_updated', user_id)}\n\n"
+                    f"**{get_text(self.db, LANGUAGES, guild_id, 'previously', user_id)}:** {prev_label} → "
+                    f"**{get_text(self.db, LANGUAGES, guild_id, 'now', user_id)}:** {new_label}"
+                )
         elif previous_choice == choice:
-            # User clicked the same choice again
-            message = f"ℹ️ {get_text(self.db, LANGUAGES, guild_id, 'already_registered', user_id)}: **{new_choice_text}**"
+            message = f"ℹ️ {get_text(self.db, LANGUAGES, guild_id, 'already_registered', user_id)}: **{new_label}**"
         else:
-            # First time voting
-            if choice == "saturday":
-                message = get_text(self.db, LANGUAGES, guild_id, "registered_saturday", user_id)
-            elif choice == "sunday":
-                message = get_text(self.db, LANGUAGES, guild_id, "registered_sunday", user_id)
-            elif choice == "both":
-                message = get_text(self.db, LANGUAGES, guild_id, "registered_both", user_id)
-            else:  # none
-                message = get_text(self.db, LANGUAGES, guild_id, "registered_not_playing", user_id)
-        
-        # Send followup with retry on 429
+            key_map = {
+                "saturday": "registered_saturday",
+                "sunday":   "registered_sunday",
+                "both":     "registered_both",
+                "none":     "registered_not_playing",
+            }
+            message = get_text(self.db, LANGUAGES, guild_id, key_map.get(choice, "registered_not_playing"), user_id)
+
+        # Send confirmation with 429 retry
         for attempt in range(3):
             try:
                 await interaction.followup.send(message, ephemeral=True)
                 break
             except discord.HTTPException as e:
                 if e.status == 429 and attempt < 2:
-                    retry_after = float(getattr(e, 'retry_after', 5))
-                    await asyncio.sleep(retry_after)
+                    await asyncio.sleep(float(getattr(e, 'retry_after', 5)))
                 else:
                     import logging
                     logging.getLogger(__name__).warning(
