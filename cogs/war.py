@@ -3,6 +3,7 @@ War commands cog for Discord bot.
 Handles war polls, participant lists, configuration, and reminders.
 """
 
+import asyncio
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -567,12 +568,22 @@ class WarPollView(discord.ui.View):
         await self._handle_vote(interaction, "none")
     
     async def _handle_vote(self, interaction: discord.Interaction, choice: str):
-        """Handle war poll vote"""
+        """Handle war poll vote with rate-limit retry logic"""
         guild_id = interaction.guild_id
         user_id = interaction.user.id
         
-        # Defer immediately - we have multiple DB calls ahead
-        await interaction.response.defer(ephemeral=True)
+        # Defer immediately with retry in case of 429 right on the defer itself
+        for attempt in range(3):
+            try:
+                await interaction.response.defer(ephemeral=True)
+                break
+            except discord.HTTPException as e:
+                if e.status == 429 and attempt < 2:
+                    retry_after = float(getattr(e, 'retry_after', 5))
+                    await asyncio.sleep(retry_after)
+                else:
+                    # Can't defer - interaction probably already expired or hard failure
+                    return
         
         # Check if user has a profile first
         player = await self.db.async_run(self.db.get_player, user_id, guild_id)
@@ -612,6 +623,7 @@ class WarPollView(discord.ui.View):
             new_choice_text = get_text(self.db, LANGUAGES, guild_id, "not_playing", user_id)
         
         # Format previous choice text
+        prev_choice_text = None
         if previous_choice:
             if previous_choice == "saturday":
                 prev_choice_text = get_text(self.db, LANGUAGES, guild_id, "saturday", user_id)
@@ -643,7 +655,21 @@ class WarPollView(discord.ui.View):
             else:  # none
                 message = get_text(self.db, LANGUAGES, guild_id, "registered_not_playing", user_id)
         
-        await interaction.followup.send(message, ephemeral=True)
+        # Send followup with retry on 429
+        for attempt in range(3):
+            try:
+                await interaction.followup.send(message, ephemeral=True)
+                break
+            except discord.HTTPException as e:
+                if e.status == 429 and attempt < 2:
+                    retry_after = float(getattr(e, 'retry_after', 5))
+                    await asyncio.sleep(retry_after)
+                else:
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        f"Failed to send war vote confirmation to {user_id} after retries: {e}"
+                    )
+                    break
 
     # ── /setpollschedule ───────────────────────────────────────────────────────
     @app_commands.command(

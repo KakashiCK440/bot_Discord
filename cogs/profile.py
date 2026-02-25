@@ -356,10 +356,13 @@ class ProfileCog(commands.Cog):
         viewer_id = interaction.user.id
         target_id = user.id
         
-        player = self.db.get_player(target_id, guild_id)
+        # Defer immediately - role removal is a slow Discord API call
+        await interaction.response.defer(ephemeral=True)
+        
+        player = await self.db.async_run(self.db.get_player, target_id, guild_id)
         
         if not player:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 get_text(self.db, LANGUAGES, guild_id, "deleteprofile_no_profile", viewer_id),
                 ephemeral=True
             )
@@ -378,16 +381,16 @@ class ProfileCog(commands.Cog):
             success, removed_roles_count = await remove_all_build_roles(member, guild)
         
         # Delete the player profile
-        deleted = self.db.delete_player(target_id, guild_id)
+        deleted = await self.db.async_run(self.db.delete_player, target_id, guild_id)
         
         if deleted:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"✅ {get_text(self.db, LANGUAGES, guild_id, 'profile_deleted', viewer_id).format(name=player_name)}\n\n"
                 f"**Roles removed:** {removed_roles_count}",
                 ephemeral=True
             )
         else:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ Failed to delete profile.",
                 ephemeral=True
             )

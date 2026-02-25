@@ -708,16 +708,17 @@ class Database:
             logger.error(f"Error getting pending join requests: {e}")
             return []
     
-    def update_join_request_status(self, request_id: int, status: str, reviewed_by: int) -> bool:
+    def update_join_request_status(self, request_id: int, status: str, reviewed_by: int, rejection_reason: str = None) -> bool:
         """Update join request status"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
                     UPDATE join_requests 
-                    SET status = %s, reviewed_at = CURRENT_TIMESTAMP, reviewed_by = %s
+                    SET status = %s, reviewed_at = CURRENT_TIMESTAMP, reviewed_by = %s,
+                        rejection_reason = COALESCE(%s, rejection_reason)
                     WHERE id = %s
-                """, (status, reviewed_by, request_id))
+                """, (status, reviewed_by, rejection_reason, request_id))
             return True
         except Exception as e:
             logger.error(f"Error updating join request status: {e}")
