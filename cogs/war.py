@@ -132,153 +132,121 @@ class WarCog(commands.Cog):
     ])
     async def warlist(self, interaction: discord.Interaction, day: app_commands.Choice[str] = None):
         """Show war participants with detailed build and weapon information"""
+        from collections import namedtuple
+        _EmbedField = namedtuple("_EmbedField", ["name", "value", "inline"])
         guild_id = interaction.guild_id
         user_id = interaction.user.id
         await interaction.response.defer()
-        
-        participants = await self.db.async_run(get_war_participants, self.db, guild_id)
-        
-        saturday_players = participants["saturday_players"] | participants["both_days_players"]
-        sunday_players = participants["sunday_players"] | participants["both_days_players"]
-        
-        # Get war times
-        config = await self.db.async_run(get_war_config, self.db, guild_id)
+
+        # Run all blocking DB work in a thread so the event loop stays free
+        # (prevents defer() on concurrent calls from expiring)
+        def fetch_all_data():
+            participants = get_war_participants(self.db, guild_id)
+            config = get_war_config(self.db, guild_id)
+            saturday_ids = participants["saturday_players"] | participants["both_days_players"]
+            sunday_ids   = participants["sunday_players"]   | participants["both_days_players"]
+
+            def build_detail(player_ids):
+                build_data = {"DPS": [], "Tank": [], "Healer": [], "Unknown": []}
+                for pid in player_ids:
+                    player  = self.db.get_player(pid, guild_id)
+                    weapons = self.db.get_player_weapons(pid, guild_id) or []
+                    if player:
+                        name  = player.get("in_game_name", f"<@{pid}>")
+                        build = player.get("build_type", "Unknown")
+                        icons = "".join(WEAPON_ICONS.get(w, "⚔️") for w in weapons[:2])
+                        entry = f"{name} {icons}".strip()
+                    else:
+                        build = "Unknown"
+                        entry = f"<@{pid}>"
+                    build_data.get(build, build_data["Unknown"]).append(entry)
+                return build_data
+
+            return config, saturday_ids, sunday_ids, build_detail(saturday_ids), build_detail(sunday_ids)
+
+        config, saturday_players, sunday_players, sat_builds, sun_builds = \
+            await self.db.async_run(fetch_all_data)
+
         guild_timezone = config.get("timezone", "Africa/Cairo")
-        
-        FIELD_LIMIT = 1024 # Discord embed field value limit
+        FIELD_LIMIT = 1024
 
-        def get_player_details_by_build(player_ids):
-            """Organizes player details by build type."""
-            build_data = {"DPS": [], "Tank": [], "Healer": [], "Unknown": []}
-            for pid in player_ids:
-                player = self.db.get_player(pid, guild_id)
-                if player:
-                    name = player.get('in_game_name', f'<@{pid}>')
-                    build = player.get('build_type', 'Unknown')
-                    weapons = self.db.get_player_weapons(pid, guild_id)
-                    
-                    weapon_str = ""
-                    if weapons:
-                        weapon_icons = [f"{WEAPON_ICONS.get(w, '⚔️')}" for w in weapons[:2]]
-                        weapon_str = " " + "".join(weapon_icons)
-                    
-                    build_data.get(build, build_data["Unknown"]).append(f"{name}{weapon_str}")
-                else:
-                    build_data["Unknown"].append(f"<@{pid}>")
-            return build_data
-
-        def format_build_field(build_type_name, players_list):
-            """Formats a single build type's player list into one or more embed fields."""
-            fields = []
+        def format_build_fields(build_type_name, players_list):
+            """Chunk a build-type player list into ≤1024-char embed fields."""
             if not players_list:
-                return fields # No players for this build type
-
-            icon = BUILD_ICONS.get(build_type_name, "❓")
-            
-            # Initial field name for the build type
-            field_name_prefix = f"{icon} {build_type_name}"
-            
-            current_content = []
-            current_length = 0
-            field_count = 0
-
-            for player_entry in players_list:
-                line = f"• {player_entry}"
-                # Check if adding this line exceeds the limit
-                # +1 for newline character
-                if current_length + len(line) + 1 > FIELD_LIMIT:
-                    # Current content exceeds limit, create a field
-                    field_name = f"{field_name_prefix} (cont.)" if field_count > 0 else field_name_prefix
-                    fields.append(discord.EmbedField(name=field_name, value="\n".join(current_content), inline=True))
-                    current_content = [line]
-                    current_length = len(line) + 1
-                    field_count += 1
+                return []
+            icon   = BUILD_ICONS.get(build_type_name, "❓")
+            base   = f"{icon} {build_type_name} ({len(players_list)})"
+            chunk, chunk_len, part, out = [], 0, 1, []
+            for entry in players_list:
+                line = f"• {entry}"
+                if chunk_len + len(line) + 1 > FIELD_LIMIT and chunk:
+                    out.append(_EmbedField(
+                        name=base if part == 1 else f"{icon} {build_type_name} (cont. {part})",
+                        value="\n".join(chunk), inline=True
+                    ))
+                    part += 1; chunk = [line]; chunk_len = len(line) + 1
                 else:
-                    current_content.append(line)
-                    current_length += len(line) + 1
-            
-            # Add any remaining content
-            if current_content:
-                field_name = f"{field_name_prefix} (cont.)" if field_count > 0 else field_name_prefix
-                fields.append(discord.EmbedField(name=field_name, value="\n".join(current_content), inline=True))
-            
-            return fields
+                    chunk.append(line); chunk_len += len(line) + 1
+            if chunk:
+                out.append(_EmbedField(
+                    name=base if part == 1 else f"{icon} {build_type_name} (cont. {part})",
+                    value="\n".join(chunk), inline=True
+                ))
+            return out
 
-        # Create embed
+        def add_day(embed, day_label, time_str, total_label, player_ids, builds):
+            total = len(player_ids)
+            summary = " • ".join(
+                f"{BUILD_ICONS.get(bt, '❓')} **{len(builds[bt])} {bt}**"
+                for bt in ("DPS", "Tank", "Healer", "Unknown") if builds[bt]
+            )
+            embed.add_field(
+                name=f"📅 {day_label} — {time_str}",
+                value=f"{total_label}: **{total}**" + (f"\n{summary}" if summary else ""),
+                inline=False
+            )
+            if total:
+                for bt in ("DPS", "Tank", "Healer", "Unknown"):
+                    for f in format_build_fields(bt, builds[bt]):
+                        embed.add_field(name=f.name, value=f.value, inline=f.inline)
+            else:
+                embed.add_field(
+                    name=get_text(self.db, LANGUAGES, guild_id, "no_players", user_id),
+                    value="\u200b", inline=False
+                )
+
         embed = discord.Embed(
             title=get_text(self.db, LANGUAGES, guild_id, "war_list_title", user_id),
             color=discord.Color.orange()
         )
-        
-        # Process Saturday players
+
         if day is None or day.value == "saturday":
             now = datetime.now(pytz.timezone(guild_timezone))
-            current_weekday = now.weekday()
-            days_to_saturday = 5 - current_weekday if current_weekday < 5 else (0 if current_weekday == 5 else 6)
+            wd  = now.weekday()
+            sat_delta = 5 - wd if wd < 5 else (0 if wd == 5 else 6)
             saturday_time = get_discord_timestamp(
-                config["saturday_war"]["hour"],
-                config["saturday_war"]["minute"],
-                days_to_saturday,
-                guild_timezone
+                config["saturday_war"]["hour"], config["saturday_war"]["minute"],
+                sat_delta, guild_timezone
             )
-            
-            saturday_build_data = get_player_details_by_build(saturday_players)
-            
-            embed.add_field(
-                name=f"📅 {get_text(self.db, LANGUAGES, guild_id, 'saturday', user_id)} - {saturday_time}",
-                value=f"{get_text(self.db, LANGUAGES, guild_id, 'total_saturday', user_id)}: **{len(saturday_players)}**",
-                inline=False
-            )
-            
-            if saturday_players:
-                for build_type in ["DPS", "Tank", "Healer", "Unknown"]:
-                    for field in format_build_field(build_type, saturday_build_data[build_type]):
-                        embed.add_field(name=field.name, value=field.value, inline=field.inline)
-            else:
-                embed.add_field(
-                    name=get_text(self.db, LANGUAGES, guild_id, 'no_players', user_id),
-                    value="\u200b", # Zero width space
-                    inline=False
-                )
-        
+            add_day(embed,
+                get_text(self.db, LANGUAGES, guild_id, "saturday", user_id), saturday_time,
+                get_text(self.db, LANGUAGES, guild_id, "total_saturday", user_id),
+                saturday_players, sat_builds)
+
         if day is None or day.value == "sunday":
-            # Calculate Sunday timestamp
             now = datetime.now(pytz.timezone(guild_timezone))
-            current_weekday = now.weekday()
-            if current_weekday < 6:
-                days_to_sunday = 6 - current_weekday
-            elif current_weekday == 6:
-                days_to_sunday = 0
-            else:
-                days_to_sunday = 7
-            
+            wd  = now.weekday()
+            sun_delta = 6 - wd if wd < 6 else (0 if wd == 6 else 7)
             sunday_time = get_discord_timestamp(
-                config["sunday_war"]["hour"],
-                config["sunday_war"]["minute"],
-                days_to_sunday,
-                guild_timezone
+                config["sunday_war"]["hour"], config["sunday_war"]["minute"],
+                sun_delta, guild_timezone
             )
-            sunday_build_data = get_player_details_by_build(sunday_players)
+            add_day(embed,
+                get_text(self.db, LANGUAGES, guild_id, "sunday", user_id), sunday_time,
+                get_text(self.db, LANGUAGES, guild_id, "total_sunday", user_id),
+                sunday_players, sun_builds)
 
-            embed.add_field(
-                name=f"📅 {get_text(self.db, LANGUAGES, guild_id, 'sunday', user_id)} - {sunday_time}",
-                value=f"{get_text(self.db, LANGUAGES, guild_id, 'total_sunday', user_id)}: **{len(sunday_players)}**",
-                inline=False
-            )
-
-            if sunday_players:
-                for build_type in ["DPS", "Tank", "Healer", "Unknown"]:
-                    for field in format_build_field(build_type, sunday_build_data[build_type]):
-                        embed.add_field(name=field.name, value=field.value, inline=field.inline)
-            else:
-                embed.add_field(
-                    name=get_text(self.db, LANGUAGES, guild_id, 'no_players', user_id),
-                    value="\u200b",
-                    inline=False
-                )
-        
         embed.set_footer(text=get_text(self.db, LANGUAGES, guild_id, "footer_builds", user_id))
-        
         await interaction.followup.send(embed=embed)
     
     @app_commands.command(name="setwar", description="Configure war settings (Admin)")
