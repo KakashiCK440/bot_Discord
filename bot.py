@@ -97,6 +97,20 @@ async def on_app_command_error(interaction: discord.Interaction, error: discord.
         logger.error(f"Failed to send error message: {e}")
 
 
+# ==================== OWNER-ONLY COMMANDS ====================
+
+@bot.command(name="leaveguild", hidden=True)
+@commands.is_owner()
+async def leave_guild(ctx, guild_id: int):
+    """Owner-only: force the bot to leave a guild by its ID."""
+    guild = bot.get_guild(guild_id)
+    if guild is None:
+        await ctx.send(f"❌ I'm not in a guild with ID `{guild_id}`.")
+        return
+    await guild.leave()
+    await ctx.send(f"✅ Left guild **{guild.name}** (`{guild_id}`).")
+
+
 # ==================== BOT EVENTS ====================
 
 @bot.event
@@ -108,15 +122,8 @@ async def on_ready():
     # Re-register persistent views
     await register_persistent_views()
     
-    # Sync commands — guild sync first (instant), then global
+    # Sync commands — global sync only (avoids per-guild API spam that causes 429s)
     try:
-        # Step 1: copy global commands to every guild immediately
-        for guild in bot.guilds:
-            bot.tree.copy_global_to(guild=guild)
-            await bot.tree.sync(guild=guild)
-        logger.info(f"✅ Guild-synced commands to {len(bot.guilds)} guild(s) instantly")
-
-        # Step 2: global sync in background (propagates over ~1 hour)
         synced = await bot.tree.sync()
         logger.info(f"✅ Global sync: {len(synced)} command(s)")
     except Exception as e:

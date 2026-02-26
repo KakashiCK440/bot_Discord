@@ -101,35 +101,13 @@ class JoinLanguageDropdown(ui.Select):
         try:
             language = self.values[0]
             
-            # Set user language preference
+            # Set user language preference (fast DB call, do it first)
             self.db.set_user_language(self.user_id, self.guild_id, language)
             
-            # Send modal first
+            # Send modal - no extra edit call needed
             modal = JoinRequestModal(self.guild_id, self.user_id, language, self.db, self.LANGUAGES)
             await interaction.response.send_modal(modal)
             
-            # After modal is sent, disable dropdown and edit message
-            import asyncio
-            
-            async def update_message():
-                # Small delay to ensure modal is sent
-                await asyncio.sleep(0.5)
-                
-                # Disable dropdown after selection
-                self.disabled = True
-                
-                # Edit message to show selection
-                lang_name = "English" if language == "en" else "العربية"
-                try:
-                    await interaction.message.edit(
-                        content=f"✅ Language selected: **{lang_name}**\n\n_Please fill out the join request form that just appeared._",
-                        view=self.view
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to edit join language message: {e}")
-            
-            # Run the update in background
-            asyncio.create_task(update_message())
         except Exception as e:
             logger.error(f"Error showing join modal: {e}", exc_info=True)
             try:

@@ -56,30 +56,12 @@ class LanguageDropdown(discord.ui.Select):
             user_id = interaction.user.id
             lang = self.values[0]
             
-            # Send modal IMMEDIATELY - NO database calls before this!
+            # Save language preference BEFORE sending modal (fast DB call)
+            self.db.set_user_language(user_id, guild_id, lang)
+            
+            # Send modal IMMEDIATELY - no extra edit call needed
             modal = CompleteProfileModal(guild_id, user_id, self.db, self.LANGUAGES)
             await interaction.response.send_modal(modal)
-            
-            # Now do ALL database work in background
-            import asyncio
-            
-            async def background_work():
-                # Save language preference
-                self.db.set_user_language(user_id, guild_id, lang)
-                
-                # Small delay to ensure modal is sent
-                await asyncio.sleep(0.3)
-                lang_name = "English" if lang == "en" else "العربية"
-                try:
-                    await interaction.message.edit(
-                        content=f"✅ Language selected: **{lang_name}**\n\n_Please fill out the profile form._",
-                        view=self.view
-                    )
-                except Exception:
-                    # Message might be deleted or not editable
-                    pass
-            
-            asyncio.create_task(background_work())
             
         except Exception as e:
             import logging
