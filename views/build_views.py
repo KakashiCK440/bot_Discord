@@ -23,19 +23,19 @@ class BuildSelectView(discord.ui.View):
             discord.SelectOption(
                 label="DPS",
                 description="Damage dealer - High damage output",
-                emoji="⚔️",
+                emoji=discord.PartialEmoji(name="emoji_1", id=1472992992791887964),
                 value="DPS"
             ),
             discord.SelectOption(
                 label="Tank",
                 description="Defender - High survivability",
-                emoji="🛡️",
+                emoji=discord.PartialEmoji(name="emoji_3", id=1472993077772947529),
                 value="Tank"
             ),
             discord.SelectOption(
                 label="Healer",
                 description="Support - Heal and buff allies",
-                emoji="💚",
+                emoji=discord.PartialEmoji(name="emoji_2", id=1472993038644023460),
                 value="Healer"
             ),
         ]

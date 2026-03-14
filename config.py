@@ -5,30 +5,30 @@ Contains build types, weapon icons, and other static configuration.
 
 # Build System Icons
 BUILD_ICONS = {
-    "DPS": "<:Dps:1469039402113306747>",
-    "Tank": "<:Tank:1469039369829748901>",
-    "Healer": "<:Healer:1469039348656898158>",
+    "DPS": "<:emoji_1:1472992992791887964>",
+    "Tank": "<:emoji_3:1472993077772947529>",
+    "Healer": "<:emoji_2:1472993038644023460>",
 }
 
 # Weapon Icons
 WEAPON_ICONS = {
     # DPS Weapons
-    "Strategic Sword": "<:StrategicSword:1468707686907642110>",
-    "Heaven Spear": "<:Heavenspear:1468707949517078539>",
-    "Nameless Sword": "<:NamelessSword:1468707969574113411>",
-    "Nameless Spear": "<:Namelessspear:1468707652212232333>",
-    "Twinblade": "<:Twinblade:1468707797263978601>",
-    "Mortal Rope": "<:MortalRobe:1468707859389878332>",
-    "Vernal Umbrella": "<:VernalUmbrella:1468707906009436272>",
-    "Inkwell Fan": "<:inkwellfan:1468707817379729605>",
-    
+    "Strategic Sword": "<:emoji_4:1472993158307647488>",
+    "Heaven Spear": "<:emoji_5:1472993239446458388>",
+    "Nameless Sword": "<:emoji_6:1472993290327560405>",
+    "Nameless Spear": "<:emoji_7:1472993541084151909>",
+    "Twinblade": "<:emoji_8:1472993615323336714>",
+    "Mortal Rope": "<:emoji_9:1472993657115246724>",
+    "Vernal Umbrella": "<:emoji_11:1472993745891758152>",
+    "Inkwell Fan": "<:emoji_10:1472993704288719019>",
+
     # Tank Weapons
-    "Thunder Blade": "<:thunderblade:1468707839240311006>",
-    "StormBreaker Spear": "<:StormBreakerspear:1468707928272797767>",
-    
+    "Thunder Blade": "<:emoji_14:1473213215327387800>",
+    "StormBreaker Spear": "<:emoji_15:1473213254816895119>",
+
     # Healer Weapons
-    "Panacea Fan": "<:Panaveafan:1468707753156415601>",
-    "Soulshade Umbrella": "<:SoulshadeUmbrella:1468707729177706637>",
+    "Panacea Fan": "<:emoji_12:1472993793203634338>",
+    "Soulshade Umbrella": "<:emoji_12:1472993825537654869>",
 }
 
 # Build Types and Associated Weapons
