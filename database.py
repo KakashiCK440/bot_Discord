@@ -50,8 +50,28 @@ class Database:
     
     @contextmanager
     def get_connection(self):
-        """Get a connection from the pool"""
-        conn = self.connection_pool.getconn()
+        """Get a connection from the pool, with automatic reconnection on stale connections."""
+        for attempt in range(2):
+            conn = self.connection_pool.getconn()
+            try:
+                # Test the connection is alive before using it
+                conn.cursor().execute("SELECT 1")
+                break  # Connection is good
+            except Exception:
+                # Connection is dead — close it and recreate the pool
+                try:
+                    self.connection_pool.putconn(conn, close=True)
+                except Exception:
+                    pass
+                if attempt == 0:
+                    logger.warning("Dead DB connection detected, recreating pool...")
+                    try:
+                        self.connection_pool.closeall()
+                    except Exception:
+                        pass
+                    self._init_postgres_pool()
+                else:
+                    raise
         try:
             yield conn
             conn.commit()

@@ -23,19 +23,19 @@ class BuildSelectView(discord.ui.View):
             discord.SelectOption(
                 label="DPS",
                 description="Damage dealer - High damage output",
-                emoji=BUILD_ICONS["DPS"],
+                emoji="⚔️",
                 value="DPS"
             ),
             discord.SelectOption(
                 label="Tank",
                 description="Defender - High survivability",
-                emoji=BUILD_ICONS["Tank"],
+                emoji="🛡️",
                 value="Tank"
             ),
             discord.SelectOption(
                 label="Healer",
                 description="Support - Heal and buff allies",
-                emoji=BUILD_ICONS["Healer"],
+                emoji="💚",
                 value="Healer"
             ),
         ]
