@@ -312,6 +312,38 @@ class Database:
                     )
             logger.info("✅ Seeded builds and weapons from hardcoded defaults")
 
+        # War events catalog (replaces hardcoded saturday/sunday war days)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS war_events (
+                id SERIAL PRIMARY KEY,
+                guild_id BIGINT NOT NULL,
+                name TEXT NOT NULL,
+                day_of_week TEXT NOT NULL,
+                war_hour INTEGER NOT NULL DEFAULT 20,
+                war_minute INTEGER NOT NULL DEFAULT 0,
+                active BOOLEAN NOT NULL DEFAULT true,
+                UNIQUE(guild_id, name)
+            )
+        """)
+
+        # Per-event vote tracking (replaces the multi-choice war_participants approach)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS war_event_votes (
+                id SERIAL PRIMARY KEY,
+                guild_id BIGINT NOT NULL,
+                user_id BIGINT NOT NULL,
+                event_name TEXT NOT NULL,
+                poll_week TEXT NOT NULL,
+                playing BOOLEAN NOT NULL DEFAULT true,
+                voted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(guild_id, user_id, event_name, poll_week)
+            )
+        """)
+
+        # Seed war_events from server_settings for guilds that have none
+        # We do this lazily per-guild when they first interact (can't know all guilds here)
+        # But we can still create the table with no data; seeding happens in get_war_events()
+
         logger.info("✅ All tables created/verified")
     
     # ==================== PLAYER PROFILE OPERATIONS ====================
@@ -1022,4 +1054,172 @@ class Database:
         except Exception as e:
             logger.error(f"Error removing weapon {name}: {e}")
             return False
+
+    # ==================== WAR EVENTS CRUD ====================
+
+    def get_war_events(self, guild_id: int, active_only: bool = False) -> list:
+        """
+        Return all war events for a guild.
+        On first call with no events, seeds from server_settings (War 1 / War 2).
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                if active_only:
+                    cursor.execute(
+                        "SELECT id, name, day_of_week, war_hour, war_minute, active "
+                        "FROM war_events WHERE guild_id = %s AND active = true ORDER BY id",
+                        (guild_id,)
+                    )
+                else:
+                    cursor.execute(
+                        "SELECT id, name, day_of_week, war_hour, war_minute, active "
+                        "FROM war_events WHERE guild_id = %s ORDER BY id",
+                        (guild_id,)
+                    )
+                cols = [d[0] for d in cursor.description]
+                rows = [dict(zip(cols, r)) for r in cursor.fetchall()]
+
+                # Lazy seed: if no events, migrate from server_settings
+                if not rows:
+                    settings = self.get_server_settings(guild_id)
+                    seeds = [
+                        ("War 1",
+                         settings.get("saturday_war_day", "Saturday"),
+                         int(settings.get("saturday_war_hour", 20)),
+                         int(settings.get("saturday_war_minute", 0))),
+                        ("War 2",
+                         settings.get("sunday_war_day", "Sunday"),
+                         int(settings.get("sunday_war_hour", 20)),
+                         int(settings.get("sunday_war_minute", 0))),
+                    ]
+                    for name, day, hour, minute in seeds:
+                        cursor.execute(
+                            "INSERT INTO war_events (guild_id, name, day_of_week, war_hour, war_minute) "
+                            "VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
+                            (guild_id, name, day, hour, minute)
+                        )
+                    cursor.execute(
+                        "SELECT id, name, day_of_week, war_hour, war_minute, active "
+                        "FROM war_events WHERE guild_id = %s ORDER BY id",
+                        (guild_id,)
+                    )
+                    cols = [d[0] for d in cursor.description]
+                    rows = [dict(zip(cols, r)) for r in cursor.fetchall()]
+                    logger.info(f"Seeded war_events for guild {guild_id} from server_settings")
+
+                return rows
+        except Exception as e:
+            logger.error(f"Error fetching war events for guild {guild_id}: {e}")
+            return []
+
+    def add_war_event(self, guild_id: int, name: str, day_of_week: str,
+                      war_hour: int, war_minute: int) -> bool:
+        """Add a new war event. Returns True on success."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT INTO war_events (guild_id, name, day_of_week, war_hour, war_minute) "
+                    "VALUES (%s, %s, %s, %s, %s)",
+                    (guild_id, name, day_of_week, war_hour, war_minute)
+                )
+            return True
+        except Exception as e:
+            logger.error(f"Error adding war event {name}: {e}")
+            return False
+
+    def remove_war_event(self, guild_id: int, name: str) -> bool:
+        """Remove a war event. Returns True if deleted."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "DELETE FROM war_events WHERE guild_id = %s AND name = %s",
+                    (guild_id, name)
+                )
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Error removing war event {name}: {e}")
+            return False
+
+    def toggle_war_event(self, guild_id: int, name: str) -> bool | None:
+        """Toggle active flag. Returns new state or None on error."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "UPDATE war_events SET active = NOT active "
+                    "WHERE guild_id = %s AND name = %s RETURNING active",
+                    (guild_id, name)
+                )
+                row = cursor.fetchone()
+                return row[0] if row else None
+        except Exception as e:
+            logger.error(f"Error toggling war event {name}: {e}")
+            return None
+
+    # ==================== WAR EVENT VOTES ====================
+
+    def set_war_vote(self, guild_id: int, user_id: int,
+                     event_name: str, poll_week: str, playing: bool) -> bool:
+        """Upsert a player's vote for a specific war event."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO war_event_votes (guild_id, user_id, event_name, poll_week, playing)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (guild_id, user_id, event_name, poll_week)
+                    DO UPDATE SET playing = EXCLUDED.playing, voted_at = CURRENT_TIMESTAMP
+                """, (guild_id, user_id, event_name, poll_week, playing))
+            return True
+        except Exception as e:
+            logger.error(f"Error setting war vote: {e}")
+            return False
+
+    def get_war_votes(self, guild_id: int, event_name: str, poll_week: str) -> list:
+        """Return all votes for a specific event this week."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT user_id, playing FROM war_event_votes
+                    WHERE guild_id = %s AND event_name = %s AND poll_week = %s
+                """, (guild_id, event_name, poll_week))
+                return [{"user_id": r[0], "playing": r[1]} for r in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Error fetching war votes: {e}")
+            return []
+
+    def get_user_war_vote(self, guild_id: int, user_id: int,
+                          event_name: str, poll_week: str) -> bool | None:
+        """Return the user's vote for an event (True=playing, False=not, None=no vote)."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT playing FROM war_event_votes
+                    WHERE guild_id = %s AND user_id = %s AND event_name = %s AND poll_week = %s
+                """, (guild_id, user_id, event_name, poll_week))
+                row = cursor.fetchone()
+                return row[0] if row else None
+        except Exception as e:
+            logger.error(f"Error fetching user war vote: {e}")
+            return None
+
+    def clear_war_event_votes(self, guild_id: int, event_name: str, poll_week: str) -> bool:
+        """Clear all votes for an event in a poll week."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "DELETE FROM war_event_votes WHERE guild_id = %s AND event_name = %s AND poll_week = %s",
+                    (guild_id, event_name, poll_week)
+                )
+            return True
+        except Exception as e:
+            logger.error(f"Error clearing war event votes: {e}")
+            return False
+
 
