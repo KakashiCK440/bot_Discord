@@ -4,7 +4,7 @@ Handles language selection, profile setup button, and complete profile modal.
 """
 
 import discord
-from config import BUILDS, BUILD_ICONS, WEAPON_ICONS
+from config import get_builds_config
 from utils.helpers import get_text, update_member_nickname
 from locales import LANGUAGES
 
@@ -172,12 +172,15 @@ class CompleteProfileModal(discord.ui.Modal):
                 )
                 return
             
+            # Default to first build in DB (or 'DPS' if none)
+            builds = get_builds_config(self.db)
+            default_build = next(iter(builds), "DPS")
             self.db.create_or_update_player(
                 user_id, guild_id,
                 ign_value,
                 mastery_val,
                 level_val,
-                "DPS"
+                default_build
             )
             
             member = interaction.user

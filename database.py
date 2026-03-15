@@ -270,6 +270,48 @@ class Database:
         except Exception:
             pass
         
+        # Builds catalog (database-driven, replaces hardcoded config.py BUILDS)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS builds (
+                id SERIAL PRIMARY KEY,
+                name TEXT UNIQUE NOT NULL,
+                emoji TEXT NOT NULL DEFAULT '⚔️',
+                description TEXT DEFAULT ''
+            )
+        """)
+
+        # Weapons catalog
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS weapons (
+                id SERIAL PRIMARY KEY,
+                name TEXT UNIQUE NOT NULL,
+                emoji TEXT NOT NULL DEFAULT '⚔️',
+                build_name TEXT NOT NULL REFERENCES builds(name) ON DELETE CASCADE
+            )
+        """)
+
+        # Seed builds & weapons from hardcoded defaults if tables are empty
+        cursor.execute("SELECT COUNT(*) FROM builds")
+        if cursor.fetchone()[0] == 0:
+            from config import BUILDS, WEAPON_ICONS
+            descriptions = {
+                "DPS": "Damage dealer - High damage output",
+                "Tank": "Defender - High survivability",
+                "Healer": "Support - Heal and buff allies",
+            }
+            for build_name, build_data in BUILDS.items():
+                cursor.execute(
+                    "INSERT INTO builds (name, emoji, description) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+                    (build_name, build_data["emoji"], descriptions.get(build_name, ""))
+                )
+                for weapon_name in build_data["weapons"]:
+                    emoji = WEAPON_ICONS.get(weapon_name, "⚔️")
+                    cursor.execute(
+                        "INSERT INTO weapons (name, emoji, build_name) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+                        (weapon_name, emoji, build_name)
+                    )
+            logger.info("✅ Seeded builds and weapons from hardcoded defaults")
+
         logger.info("✅ All tables created/verified")
     
     # ==================== PLAYER PROFILE OPERATIONS ====================
@@ -875,3 +917,109 @@ class Database:
         except Exception as e:
             logger.error(f"Error setting welcome message ID: {e}")
             return False
+
+    # ==================== BUILDS & WEAPONS CRUD ====================
+
+    def get_builds(self) -> list:
+        """Return all builds as a list of dicts."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT name, emoji, description FROM builds ORDER BY id")
+                cols = [d[0] for d in cursor.description]
+                return [dict(zip(cols, row)) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Error fetching builds: {e}")
+            return []
+
+    def get_weapons(self, build_name: str) -> list:
+        """Return all weapons for a given build as a list of dicts."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT name, emoji, build_name FROM weapons WHERE build_name = %s ORDER BY id",
+                    (build_name,)
+                )
+                cols = [d[0] for d in cursor.description]
+                return [dict(zip(cols, row)) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Error fetching weapons for {build_name}: {e}")
+            return []
+
+    def get_all_weapons(self) -> list:
+        """Return all weapons across all builds."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT name, emoji, build_name FROM weapons ORDER BY build_name, id")
+                cols = [d[0] for d in cursor.description]
+                return [dict(zip(cols, row)) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Error fetching all weapons: {e}")
+            return []
+
+    def get_weapon_by_name(self, name: str) -> dict | None:
+        """Return a single weapon dict by name, or None."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT name, emoji, build_name FROM weapons WHERE name = %s", (name,))
+                row = cursor.fetchone()
+                if row:
+                    cols = [d[0] for d in cursor.description]
+                    return dict(zip(cols, row))
+        except Exception as e:
+            logger.error(f"Error fetching weapon {name}: {e}")
+        return None
+
+    def add_build(self, name: str, emoji: str, description: str = "") -> bool:
+        """Add a new build type. Returns True on success."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT INTO builds (name, emoji, description) VALUES (%s, %s, %s)",
+                    (name, emoji, description)
+                )
+            return True
+        except Exception as e:
+            logger.error(f"Error adding build {name}: {e}")
+            return False
+
+    def remove_build(self, name: str) -> bool:
+        """Remove a build (cascades to its weapons). Returns True on success."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM builds WHERE name = %s", (name,))
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Error removing build {name}: {e}")
+            return False
+
+    def add_weapon(self, name: str, emoji: str, build_name: str) -> bool:
+        """Add a new weapon to a build. Returns True on success."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT INTO weapons (name, emoji, build_name) VALUES (%s, %s, %s)",
+                    (name, emoji, build_name)
+                )
+            return True
+        except Exception as e:
+            logger.error(f"Error adding weapon {name}: {e}")
+            return False
+
+    def remove_weapon(self, name: str) -> bool:
+        """Remove a weapon by name. Returns True on success."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM weapons WHERE name = %s", (name,))
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Error removing weapon {name}: {e}")
+            return False
+

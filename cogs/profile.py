@@ -6,7 +6,7 @@ Handles player profile creation, viewing, updating, and management.
 import discord
 from discord.ext import commands
 from discord import app_commands
-from config import BUILDS, BUILD_ICONS, WEAPON_ICONS
+from config import get_builds_config, get_weapon_icon
 from utils.helpers import get_text, update_member_nickname, invalidate_lang_cache
 from locales import LANGUAGES
 from views.profile_views import LanguageSelectView
@@ -78,7 +78,8 @@ class ProfileCog(commands.Cog):
             return
         
         player = await self.db.async_run(self.db.get_player, user_id, guild_id)
-        build_type = player.get('build_type', 'DPS') if player else 'DPS'
+        builds = get_builds_config(self.db)
+        build_type = player.get('build_type', next(iter(builds), 'DPS')) if player else next(iter(builds), 'DPS')
         
         self.db.create_or_update_player(
             user_id, guild_id,
@@ -111,11 +112,13 @@ class ProfileCog(commands.Cog):
         if player:
             weapons = self.db.get_player_weapons(user_id, guild_id)
             if weapons:
+                builds = get_builds_config(self.db)
                 weapons_display = "\n".join([
-                    f"{WEAPON_ICONS.get(w, '⚔️')} {w}" for w in weapons
+                    f"{get_weapon_icon(self.db, w)} {w}" for w in weapons
                 ])
+                build_emoji = builds.get(build_type, {}).get('emoji', '⚔️')
                 embed.add_field(
-                    name=f"{BUILDS[build_type]['emoji']} {get_text(self.db, LANGUAGES, guild_id, 'build_type', user_id)}",
+                    name=f"{build_emoji} {get_text(self.db, LANGUAGES, guild_id, 'build_type', user_id)}",
                     value=f"**{build_type}**\n{weapons_display}",
                     inline=False
                 )
@@ -152,7 +155,8 @@ class ProfileCog(commands.Cog):
         rank = next((i+1 for i, p in enumerate(sorted_players) if p['user_id'] == target_id), 0)
         
         build_type = player.get('build_type', 'Not set')
-        build_icon = BUILDS.get(build_type, {}).get('emoji', '⚔️')
+        builds = get_builds_config(self.db)
+        build_icon = builds.get(build_type, {}).get('emoji', '⚔️')
         
         embed = discord.Embed(
             title=f"{get_text(self.db, LANGUAGES, guild_id, 'profile_title', viewer_id)}",
@@ -188,7 +192,7 @@ class ProfileCog(commands.Cog):
         # Build and weapons
         weapons = self.db.get_player_weapons(target_id, guild_id)
         weapons_display = "\n".join([
-            f"{WEAPON_ICONS.get(w, '⚔️')} {w}" for w in weapons
+            f"{get_weapon_icon(self.db, w)} {w}" for w in weapons
         ]) if weapons else get_text(self.db, LANGUAGES, guild_id, "no_weapons", viewer_id)
         
         embed.add_field(

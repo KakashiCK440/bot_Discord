@@ -165,42 +165,65 @@ async def validate_war_channel(channel_id: int, guild: discord.Guild) -> tuple:
     return True, "OK"
 
 
-async def remove_all_build_roles(member: discord.Member, guild: discord.Guild):
+async def remove_all_build_roles(member: discord.Member, guild: discord.Guild, db=None):
     """
     Remove all build and weapon roles from a member.
-    
-    Args:
-        member: Discord member to remove roles from
-        guild: Discord guild
-        
+    Reads build/weapon names from the database when db is supplied,
+    falling back to the hardcoded config when db is None.
+
     Returns:
         tuple: (success: bool, removed_count: int)
     """
-    from config import BUILDS, WEAPON_ICONS
-    
     removed_count = 0
-    
+
     try:
-        # Remove build roles (DPS, Tank, Healer)
-        for build_name in BUILDS.keys():
-            role = discord.utils.get(guild.roles, name=build_name)
-            if role and role in member.roles:
-                try:
-                    await member.remove_roles(role)
-                    removed_count += 1
-                except:
-                    pass  # Role might not exist or no permissions
-        
+        # Collect build names and weapon names to remove
+        if db is not None:
+            try:
+                from config import get_builds_config
+                builds = get_builds_config(db)
+                build_names = list(builds.keys())
+                all_weapons = db.get_all_weapons()
+                weapon_names = [w["name"] for w in all_weapons]
+                # Include emoji-prefixed role names
+                weapon_emojis = {w["name"]: w.get("emoji", "") for w in all_weapons}
+                build_emojis = {n: builds[n].get("emoji", "") for n in build_names}
+            except Exception:
+                from config import BUILDS, WEAPON_ICONS
+                builds = BUILDS
+                build_names = list(BUILDS.keys())
+                weapon_names = list(WEAPON_ICONS.keys())
+                build_emojis = {n: BUILDS[n]["emoji"] for n in build_names}
+                weapon_emojis = {w: "" for w in weapon_names}
+        else:
+            from config import BUILDS, WEAPON_ICONS
+            build_names = list(BUILDS.keys())
+            weapon_names = list(WEAPON_ICONS.keys())
+            build_emojis = {n: BUILDS[n]["emoji"] for n in build_names}
+            weapon_emojis = {w: "" for w in weapon_names}
+
+        # Remove build roles (plain name and emoji-prefixed variants)
+        for build_name in build_names:
+            for role_name in [build_name, f"{build_emojis.get(build_name, '')} {build_name}".strip()]:
+                role = discord.utils.get(guild.roles, name=role_name)
+                if role and role in member.roles:
+                    try:
+                        await member.remove_roles(role)
+                        removed_count += 1
+                    except Exception:
+                        pass
+
         # Remove weapon roles
-        for weapon_name in WEAPON_ICONS.keys():
-            weapon_role = discord.utils.get(guild.roles, name=weapon_name)
-            if weapon_role and weapon_role in member.roles:
-                try:
-                    await member.remove_roles(weapon_role)
-                    removed_count += 1
-                except:
-                    pass  # Role might not exist or no permissions
-        
+        for weapon_name in weapon_names:
+            for role_name in [weapon_name, f"{weapon_emojis.get(weapon_name, '')} {weapon_name}".strip()]:
+                role = discord.utils.get(guild.roles, name=role_name)
+                if role and role in member.roles:
+                    try:
+                        await member.remove_roles(role)
+                        removed_count += 1
+                    except Exception:
+                        pass
+
         return True, removed_count
     except Exception as e:
         logger.error(f"Error removing build roles from {member.id}: {e}")
