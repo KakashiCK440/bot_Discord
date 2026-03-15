@@ -122,10 +122,16 @@ async def on_ready():
     # Re-register persistent views
     await register_persistent_views()
     
-    # Sync commands — global sync only (avoids per-guild API spam that causes 429s)
+    # Sync commands
+    # Guild-copy = instant, Global = up to 1 hour to propagate
     try:
+        # 1. Copy global commands into every connected guild → shows up instantly
+        for guild in bot.guilds:
+            bot.tree.copy_global_to(guild=guild)
+            await bot.tree.sync(guild=guild)
+        # 2. Also do global sync for guilds the bot joins later
         synced = await bot.tree.sync()
-        logger.info(f"✅ Global sync: {len(synced)} command(s)")
+        logger.info(f"✅ Synced {len(synced)} command(s) globally + instant-synced to {len(bot.guilds)} guild(s)")
     except Exception as e:
         logger.error(f"❌ Failed to sync commands: {e}")
     
@@ -150,13 +156,14 @@ async def on_ready():
 
 async def register_persistent_views():
     """Register all persistent views that should survive bot restarts"""
-    from cogs.war import WarPollView
     from views.profile_views import ProfileSetupButton
     from views.join_views import JoinRequestButton, AdminApprovalView
     from views.build_views import BuildSelectView
     
-    # Register war poll view
-    bot.add_view(WarPollView(None, db))  # guild_id will be set from interaction
+    # Register war poll views (both single-event and all-event variants)
+    # Pass empty events list — the view uses custom_id matching, guild_id resolved from interaction
+    from cogs.war import WarPollAllView, WarPollSingleView
+    bot.add_view(WarPollAllView(guild_id=None, db=db, events=[]))
     
     # Register profile setup button (LANGUAGES first, then db)
     bot.add_view(ProfileSetupButton(LANGUAGES=LANGUAGES, db=db))
