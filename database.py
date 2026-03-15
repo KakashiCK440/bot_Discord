@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 ALLOWED_SETTINGS = {
     'language', 'war_channel_id', 'poll_day', 'poll_time_hour', 'poll_time_minute',
     'saturday_war_hour', 'saturday_war_minute', 'sunday_war_hour', 'sunday_war_minute',
+    'saturday_war_day', 'sunday_war_day',
     'reminder_hours_before', 'timezone'
 }
 
@@ -177,14 +178,30 @@ class Database:
                 poll_day TEXT DEFAULT 'Friday',
                 poll_time_hour INTEGER DEFAULT 20,
                 poll_time_minute INTEGER DEFAULT 0,
+                saturday_war_day TEXT DEFAULT 'Saturday',
                 saturday_war_hour INTEGER DEFAULT 20,
                 saturday_war_minute INTEGER DEFAULT 0,
+                sunday_war_day TEXT DEFAULT 'Sunday',
                 sunday_war_hour INTEGER DEFAULT 20,
                 sunday_war_minute INTEGER DEFAULT 0,
                 reminder_hours_before INTEGER DEFAULT 1,
                 timezone TEXT DEFAULT 'Asia/Dubai'
             )
         """)
+        
+        # Migration: add saturday_war_day / sunday_war_day to existing server_settings tables
+        try:
+            cursor.execute("""
+                ALTER TABLE server_settings ADD COLUMN IF NOT EXISTS saturday_war_day TEXT DEFAULT 'Saturday'
+            """)
+        except Exception:
+            pass
+        try:
+            cursor.execute("""
+                ALTER TABLE server_settings ADD COLUMN IF NOT EXISTS sunday_war_day TEXT DEFAULT 'Sunday'
+            """)
+        except Exception:
+            pass
         
         # Server join settings
         cursor.execute("""
@@ -233,9 +250,25 @@ class Database:
                 id SERIAL PRIMARY KEY,
                 guild_id BIGINT,
                 event_type TEXT,
+                poll_week TEXT,
+                day TEXT,
                 sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        
+        # Migration: add poll_week and day columns to existing sent_events tables
+        try:
+            cursor.execute("""
+                ALTER TABLE sent_events ADD COLUMN IF NOT EXISTS poll_week TEXT
+            """)
+        except Exception:
+            pass
+        try:
+            cursor.execute("""
+                ALTER TABLE sent_events ADD COLUMN IF NOT EXISTS day TEXT
+            """)
+        except Exception:
+            pass
         
         logger.info("✅ All tables created/verified")
     

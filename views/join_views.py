@@ -159,6 +159,9 @@ class JoinRequestModal(ui.Modal):
     
     async def on_submit(self, interaction: discord.Interaction):
         """Handle modal submission"""
+        # Acknowledge immediately — Discord requires a response within 3 seconds.
+        # All heavy work (DB calls, sending embeds) happens after this.
+        await interaction.response.defer(ephemeral=True)
         try:
             # Parse inputs
             in_game_name = self.name_input.value.strip()
@@ -168,14 +171,14 @@ class JoinRequestModal(ui.Modal):
                 power = int(self.power_input.value.strip())
             except ValueError:
                 error_msg = get_text(self.db, self.LANGUAGES, self.guild_id, "join_invalid_numbers", self.user_id)
-                await interaction.response.send_message(error_msg, ephemeral=True)
+                await interaction.followup.send(error_msg, ephemeral=True)
                 return
             
             # Get join settings
             settings = self.db.get_join_settings(self.guild_id)
             if not settings:
                 error_msg = get_text(self.db, self.LANGUAGES, self.guild_id, "join_not_setup", self.user_id)
-                await interaction.response.send_message(error_msg, ephemeral=True)
+                await interaction.followup.send(error_msg, ephemeral=True)
                 return
             
             min_power = settings["min_power_requirement"]
@@ -195,7 +198,7 @@ class JoinRequestModal(ui.Modal):
                 
                 reject_msg = get_text(self.db, self.LANGUAGES, self.guild_id, "join_rejected_power", self.user_id)
                 reject_msg = reject_msg.format(min_power=min_power)
-                await interaction.response.send_message(reject_msg, ephemeral=True)
+                await interaction.followup.send(reject_msg, ephemeral=True)
                 return
             
             # Power meets requirement - send to admin review
@@ -204,7 +207,7 @@ class JoinRequestModal(ui.Modal):
             
             if not admin_channel:
                 error_msg = get_text(self.db, self.LANGUAGES, self.guild_id, "join_channel_error", self.user_id)
-                await interaction.response.send_message(error_msg, ephemeral=True)
+                await interaction.followup.send(error_msg, ephemeral=True)
                 return
             
             # Create admin review embed
@@ -234,12 +237,12 @@ class JoinRequestModal(ui.Modal):
             
             # Confirm to user
             success_msg = get_text(self.db, self.LANGUAGES, self.guild_id, "join_submitted", self.user_id)
-            await interaction.response.send_message(success_msg, ephemeral=True)
+            await interaction.followup.send(success_msg, ephemeral=True)
             
         except Exception as e:
             logger.error(f"Error in join request submission: {e}", exc_info=True)
             try:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     "❌ An error occurred. Please try again later.",
                     ephemeral=True
                 )

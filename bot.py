@@ -23,7 +23,7 @@ from bot_config import (
     WEB_SERVER_PORT,
     DISCORD_TOKEN
 )
-from utils.war_helpers import get_current_poll_week, get_war_config
+from utils.war_helpers import get_current_poll_week, get_war_config, DAY_MAP
 from utils.helpers import get_discord_timestamp
 
 # Configure logging
@@ -298,81 +298,92 @@ async def check_war_reminders():
     """Check if it's time to send war reminders"""
     try:
         now_utc = datetime.now(pytz.UTC)
-        
+
         for guild in bot.guilds:
             try:
                 config = get_war_config(db, guild.id)
                 channel_id = config.get("war_channel_id")
-                
+
                 if not channel_id:
                     continue
-                
+
                 tz = pytz.timezone(config.get("timezone", "Africa/Cairo"))
                 now_local = now_utc.astimezone(tz)
-                
                 reminder_hours = config.get("reminder_hours", 2)
-                
-                # Check Saturday war
-                sat_hour = config["saturday_war"]["hour"]
-                sat_minute = config["saturday_war"]["minute"]
-                
-                if now_local.weekday() == 5:  # Saturday
-                    reminder_time = now_local.replace(hour=sat_hour, minute=sat_minute) - timedelta(hours=reminder_hours)
-                    if abs((now_local - reminder_time).total_seconds()) < 60 * WAR_REMINDER_CHECK_INTERVAL:
+
+                from utils.war_helpers import get_war_participants
+
+                # --- War 1 (configurable day, defaults to Saturday) ---
+                war1_day_name = config.get("saturday_war_day", "Saturday")
+                war1_weekday  = DAY_MAP.get(war1_day_name, 5)
+                war1_hour     = config["saturday_war"]["hour"]
+                war1_minute   = config["saturday_war"]["minute"]
+
+                if now_local.weekday() == war1_weekday:
+                    war_time    = now_local.replace(hour=war1_hour, minute=war1_minute, second=0, microsecond=0)
+                    remind_at   = war_time - timedelta(hours=reminder_hours)
+                    window_secs = 60 * WAR_REMINDER_CHECK_INTERVAL
+                    if abs((now_local - remind_at).total_seconds()) < window_secs:
                         poll_week = get_current_poll_week()
                         if not db.was_event_sent(guild.id, "saturday_reminder", poll_week):
                             channel = guild.get_channel(channel_id)
                             if channel:
-                                # Get Saturday participants
-                                from utils.war_helpers import get_war_participants
                                 participants = get_war_participants(db, guild.id)
-                                saturday_players = participants["saturday_players"] | participants["both_days_players"]
-                                
-                                # Create mentions
-                                if saturday_players:
-                                    mentions = " ".join([f"<@{pid}>" for pid in saturday_players])
-                                    await channel.send(
-                                        f"⚔️ **Saturday War Reminder!**\n"
-                                        f"War starts in **{reminder_hours} hours**!\n\n"
-                                        f"**Players signed up:** {mentions}"
+                                players = participants["saturday_players"] | participants["both_days_players"]
+                                embed = discord.Embed(
+                                    title=f"⚔️ {war1_day_name} War — Reminder!",
+                                    description=f"War starts in **{reminder_hours} hour(s)**!",
+                                    color=discord.Color.red()
+                                )
+                                if players:
+                                    mentions = " ".join(f"<@{pid}>" for pid in players)
+                                    embed.add_field(
+                                        name=f"✅ Signed Up ({len(players)})",
+                                        value=mentions,
+                                        inline=False
                                     )
                                 else:
-                                    await channel.send(f"⚔️ **Saturday War Reminder!** War starts in {reminder_hours} hours!")
-                                
+                                    embed.add_field(name="⚠️ No sign-ups yet", value="Nobody has voted for this war day.", inline=False)
+                                await channel.send(embed=embed)
                                 db.mark_event_sent(guild.id, "saturday_reminder", poll_week)
-                
-                # Check Sunday war
-                sun_hour = config["sunday_war"]["hour"]
-                sun_minute = config["sunday_war"]["minute"]
-                
-                if now_local.weekday() == 6:  # Sunday
-                    reminder_time = now_local.replace(hour=sun_hour, minute=sun_minute) - timedelta(hours=reminder_hours)
-                    if abs((now_local - reminder_time).total_seconds()) < 60 * WAR_REMINDER_CHECK_INTERVAL:
+
+                # --- War 2 (configurable day, defaults to Sunday) ---
+                war2_day_name = config.get("sunday_war_day", "Sunday")
+                war2_weekday  = DAY_MAP.get(war2_day_name, 6)
+                war2_hour     = config["sunday_war"]["hour"]
+                war2_minute   = config["sunday_war"]["minute"]
+
+                if now_local.weekday() == war2_weekday:
+                    war_time    = now_local.replace(hour=war2_hour, minute=war2_minute, second=0, microsecond=0)
+                    remind_at   = war_time - timedelta(hours=reminder_hours)
+                    window_secs = 60 * WAR_REMINDER_CHECK_INTERVAL
+                    if abs((now_local - remind_at).total_seconds()) < window_secs:
                         poll_week = get_current_poll_week()
                         if not db.was_event_sent(guild.id, "sunday_reminder", poll_week):
                             channel = guild.get_channel(channel_id)
                             if channel:
-                                # Get Sunday participants
-                                from utils.war_helpers import get_war_participants
                                 participants = get_war_participants(db, guild.id)
-                                sunday_players = participants["sunday_players"] | participants["both_days_players"]
-                                
-                                # Create mentions
-                                if sunday_players:
-                                    mentions = " ".join([f"<@{pid}>" for pid in sunday_players])
-                                    await channel.send(
-                                        f"⚔️ **Sunday War Reminder!**\n"
-                                        f"War starts in **{reminder_hours} hours**!\n\n"
-                                        f"**Players signed up:** {mentions}"
+                                players = participants["sunday_players"] | participants["both_days_players"]
+                                embed = discord.Embed(
+                                    title=f"⚔️ {war2_day_name} War — Reminder!",
+                                    description=f"War starts in **{reminder_hours} hour(s)**!",
+                                    color=discord.Color.red()
+                                )
+                                if players:
+                                    mentions = " ".join(f"<@{pid}>" for pid in players)
+                                    embed.add_field(
+                                        name=f"✅ Signed Up ({len(players)})",
+                                        value=mentions,
+                                        inline=False
                                     )
                                 else:
-                                    await channel.send(f"⚔️ **Sunday War Reminder!** War starts in {reminder_hours} hours!")
-                                
+                                    embed.add_field(name="⚠️ No sign-ups yet", value="Nobody has voted for this war day.", inline=False)
+                                await channel.send(embed=embed)
                                 db.mark_event_sent(guild.id, "sunday_reminder", poll_week)
-            
+
             except Exception as e:
                 logger.error(f"Error checking war reminders for guild {guild.id}: {e}")
-    
+
     except Exception as e:
         logger.error(f"Error in war reminder task: {e}")
 

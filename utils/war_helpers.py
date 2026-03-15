@@ -38,6 +38,13 @@ def set_war_participation(db, guild_id: int, user_id: int, day_choice: str):
         db.set_war_participation(user_id, guild_id, poll_week, stored)
 
 
+# Map day names to weekday numbers (Monday=0 … Sunday=6)
+DAY_MAP = {
+    "Monday": 0, "Tuesday": 1, "Wednesday": 2, "Thursday": 3,
+    "Friday": 4, "Saturday": 5, "Sunday": 6
+}
+
+
 def get_war_config(db, guild_id: int) -> dict:
     """Get war configuration for a guild"""
     settings = db.get_server_settings(guild_id)
@@ -48,10 +55,12 @@ def get_war_config(db, guild_id: int) -> dict:
             "hour": int(settings.get('poll_time_hour', 15)),
             "minute": int(settings.get('poll_time_minute', 0))
         },
+        "saturday_war_day": settings.get('saturday_war_day', 'Saturday'),
         "saturday_war": {
             "hour": int(settings.get('saturday_war_hour', 22)),
             "minute": int(settings.get('saturday_war_minute', 30))
         },
+        "sunday_war_day": settings.get('sunday_war_day', 'Sunday'),
         "sunday_war": {
             "hour": int(settings.get('sunday_war_hour', 22)),
             "minute": int(settings.get('sunday_war_minute', 30))

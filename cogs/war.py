@@ -16,7 +16,8 @@ from utils.war_helpers import (
     get_war_participants,
     set_war_participation,
     get_war_config,
-    update_war_setting
+    update_war_setting,
+    DAY_MAP
 )
 from locales import LANGUAGES
 
@@ -255,13 +256,15 @@ class WarCog(commands.Cog):
         value="New value for the setting"
     )
     @app_commands.choices(setting=[
-        app_commands.Choice(name="War Channel", value="war_channel_id"),
-        app_commands.Choice(name="Saturday War Hour", value="saturday_war_hour"),
-        app_commands.Choice(name="Saturday War Minute", value="saturday_war_minute"),
-        app_commands.Choice(name="Sunday War Hour", value="sunday_war_hour"),
-        app_commands.Choice(name="Sunday War Minute", value="sunday_war_minute"),
+        app_commands.Choice(name="War Channel",           value="war_channel_id"),
+        app_commands.Choice(name="Saturday War Day",      value="saturday_war_day"),
+        app_commands.Choice(name="Saturday War Hour",     value="saturday_war_hour"),
+        app_commands.Choice(name="Saturday War Minute",   value="saturday_war_minute"),
+        app_commands.Choice(name="Sunday War Day",        value="sunday_war_day"),
+        app_commands.Choice(name="Sunday War Hour",       value="sunday_war_hour"),
+        app_commands.Choice(name="Sunday War Minute",     value="sunday_war_minute"),
         app_commands.Choice(name="Reminder Hours Before", value="reminder_hours_before"),
-        app_commands.Choice(name="Timezone", value="timezone")
+        app_commands.Choice(name="Timezone",              value="timezone")
     ])
     @app_commands.checks.has_permissions(administrator=True)
     async def setwar(self, interaction: discord.Interaction, setting: app_commands.Choice[str], value: str):
@@ -291,6 +294,17 @@ class WarCog(commands.Cog):
             
             update_war_setting(self.db, guild_id, setting_key, channel_id)
             display_value = f"<#{channel_id}>"
+        
+        elif setting_key in ("saturday_war_day", "sunday_war_day"):
+            # Validate that it's a real day name
+            if value.capitalize() not in DAY_MAP:
+                days_list = ", ".join(DAY_MAP.keys())
+                await interaction.response.send_message(
+                    f"❌ Invalid day. Choose one of: {days_list}", ephemeral=True
+                )
+                return
+            update_war_setting(self.db, guild_id, setting_key, value.capitalize())
+            display_value = value.capitalize()
         
         elif setting_key in ["saturday_war_hour", "sunday_war_hour"]:
             try:
@@ -408,7 +422,44 @@ class WarCog(commands.Cog):
         )
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
-    
+
+    @app_commands.command(name="warschedule", description="View full war & poll schedule (Admin)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def warschedule(self, interaction: discord.Interaction):
+        """Show a full overview of all war-related schedule settings for this server"""
+        guild_id = interaction.guild_id
+        await interaction.response.defer(ephemeral=True)
+        config = await self.db.async_run(get_war_config, self.db, guild_id)
+        tz = config.get("timezone", "Africa/Cairo")
+
+        channel_id = config.get("war_channel_id")
+        channel_str = f"<#{channel_id}>" if channel_id else "❌ Not set — use `/setwar War Channel`"
+
+        sat_day  = config.get("saturday_war_day", "Saturday")
+        sat_time = f"{config['saturday_war']['hour']:02d}:{config['saturday_war']['minute']:02d}"
+        sun_day  = config.get("sunday_war_day", "Sunday")
+        sun_time = f"{config['sunday_war']['hour']:02d}:{config['sunday_war']['minute']:02d}"
+        poll_day = config.get("poll_day", "Friday")
+        poll_h   = config['poll_time']['hour']
+        poll_m   = config['poll_time']['minute']
+        reminder = config.get("reminder_hours", 2)
+
+        embed = discord.Embed(
+            title="📅 Full War & Poll Schedule",
+            description=f"All times are in **{tz}**. Change settings with `/setwar` or `/setpollschedule`.",
+            color=discord.Color.blurple()
+        )
+        embed.add_field(name="📢 War Channel",  value=channel_str,                        inline=False)
+        embed.add_field(name="⚔️ War 1 Day",      value=sat_day,                             inline=True)
+        embed.add_field(name="⏰ War 1 Start",  value=f"{sat_time}",                         inline=True)
+        embed.add_field(name="​",              value="​",                                   inline=True)
+        embed.add_field(name="⚔️ War 2 Day",      value=sun_day,                             inline=True)
+        embed.add_field(name="⏰ War 2 Start",  value=f"{sun_time}",                         inline=True)
+        embed.add_field(name="​",              value="​",                                   inline=True)
+        embed.add_field(name="🗳️ Poll Posted",   value=f"Every **{poll_day}** at **{poll_h:02d}:{poll_m:02d}**", inline=False)
+        embed.add_field(name="🔔 Reminder Sent", value=f"**{reminder}h** before each war starts",  inline=False)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
     @app_commands.command(name="testreminder", description="Test war reminder (Admin)")
     @app_commands.describe(day="Day to test reminder for")
     @app_commands.choices(day=[
